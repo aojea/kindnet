@@ -1,0 +1,10 @@
+package: github.com/aojea/kindnet
+import:
+- package: k8s.io/client-go
+  version: v10.0.0
+- package: github.com/vishvananda/netlink
+  version: v1.0.0
+- package: github.com/vishvananda/netns
+  version: master
+- package: golang.org/x/sys
+  version: release-branch.go1.11
