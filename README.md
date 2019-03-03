@@ -43,6 +43,7 @@ plugins in /opt/cni/bin.
 
 ## TODO
 
+Add proper logging
 Rolling updates
 Windows support
 Multi-platform support

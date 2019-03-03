@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -74,17 +75,18 @@ func main() {
 			fmt.Printf("Node %v has CIDR %s",
 				node.Name, node.Spec.PodCIDR)
 
-			// Add the route to the system
-			routeToDst, err := netlink.RouteGet(dst.IP)
+			// Add the route to the system if not present
+			routeToDst := netlink.Route{Dst: dst, Gw: ip}
+			route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
 			if err != nil {
 				panic(err.Error())
 			}
 			// Add route if not present
-			if len(routeToDst) == 0 {
-				route := netlink.Route{Dst: dst, Src: ip}
-				if err := netlink.RouteAdd(&route); err != nil {
+			if len(route) == 0 {
+				if err := netlink.RouteAdd(&routeToDst); err != nil {
 					panic(err.Error())
 				}
+				fmt.Printf("Adding route to the system %v", routeToDst)
 			}
 
 		}
