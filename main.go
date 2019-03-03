@@ -20,6 +20,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"os"
 	"time"
 
 	"github.com/vishvananda/netlink"
@@ -38,6 +39,11 @@ func main() {
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
+		panic(err.Error())
+	}
+
+	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
+	if hostIP != podIP {
 		panic(err.Error())
 	}
 	// initates the loop
@@ -61,32 +67,36 @@ func main() {
 					nodeIP = address.Address
 				}
 			}
-			ip := net.ParseIP(nodeIP)
 
-			// Obtain Pod Subnet
-			if node.Spec.PodCIDR == "" {
-				fmt.Printf("Node %v has no CIDR, ignoring", node.Name)
-				continue
-			}
-			dst, err := netlink.ParseIPNet(node.Spec.PodCIDR)
-			if err != nil {
-				panic(err.Error())
-			}
-			fmt.Printf("Node %v has CIDR %s",
-				node.Name, node.Spec.PodCIDR)
+			if nodeIP != hostIP {
 
-			// Add the route to the system if not present
-			routeToDst := netlink.Route{Dst: dst, Gw: ip}
-			route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
-			if err != nil {
-				panic(err.Error())
-			}
-			// Add route if not present
-			if len(route) == 0 {
-				if err := netlink.RouteAdd(&routeToDst); err != nil {
+				ip := net.ParseIP(nodeIP)
+
+				// Obtain Pod Subnet
+				if node.Spec.PodCIDR == "" {
+					fmt.Printf("Node %v has no CIDR, ignoring", node.Name)
+					continue
+				}
+				dst, err := netlink.ParseIPNet(node.Spec.PodCIDR)
+				if err != nil {
 					panic(err.Error())
 				}
-				fmt.Printf("Adding route to the system %v", routeToDst)
+				fmt.Printf("Node %v has CIDR %s",
+					node.Name, node.Spec.PodCIDR)
+
+				// Add the route to the system if not present
+				routeToDst := netlink.Route{Dst: dst, Gw: ip}
+				route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
+				if err != nil {
+					panic(err.Error())
+				}
+				// Add route if not present
+				if len(route) == 0 {
+					if err := netlink.RouteAdd(&routeToDst); err != nil {
+						panic(err.Error())
+					}
+					fmt.Printf("Adding route to the system %v", routeToDst)
+				}
 			}
 
 		}
