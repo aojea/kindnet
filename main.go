@@ -19,10 +19,10 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/vishvananda/netlink"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -41,21 +41,57 @@ func main() {
 	}
 	// initates the loop
 	for {
+		// Gets the Nodes information from the API
 		nodes, err := clientset.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
 			panic(err.Error())
 		}
 		fmt.Printf("There are %d nodes in the cluster\n", len(nodes.Items))
+
+		// Iterate over all the nodes information
 		for _, node := range nodes.Items {
+			var nodeIP string
+
+			// Obtain node internal IP
+			// TODO check if we need to add more sanity checks
+			// current we asume the ip exists
+			for _, address := range node.Status.Addresses {
+				if address.Type == "InternalIP" {
+					nodeIP = address.Address
+				}
+			}
+			ip := net.ParseIP(nodeIP)
+
+			// Obtain Pod Subnet
 			if node.Spec.PodCIDR == "" {
 				fmt.Printf("Node %v has no CIDR, ignoring", node.Name)
 				continue
-			} else {
-				fmt.Printf("Node %v has CIDR %s, occupying it in CIDR map",
-					node.Name, node.Spec.PodCIDR)
 			}
+			dst, err := netlink.ParseIPNet(node.Spec.PodCIDR)
+			if err != nil {
+				panic(err.Error())
+			}
+			fmt.Printf("Node %v has CIDR %s",
+				node.Name, node.Spec.PodCIDR)
+
+			// Add the route to the system
+			routeToDst, err := netlink.RouteGet(dst.IP)
+			if err != nil {
+				panic(err.Error())
+			}
+			// Add route if not present
+			if len(routeToDst) == 0 {
+				route := netlink.Route{Dst: dst, Src: ip}
+				if err := netlink.RouteAdd(&route); err != nil {
+					panic(err.Error())
+				}
+			}
+
 		}
 
+		// Writes the routes to the Pod Subnets in other nodes
+
+		// Sleep
 		time.Sleep(10 * time.Second)
 	}
 }
