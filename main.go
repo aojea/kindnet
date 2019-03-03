@@ -41,7 +41,7 @@ func main() {
 	}
 	// initates the loop
 	for {
-		nodes, err := clientset.CoreV1().Nodes("").List(metav1.ListOptions{})
+		nodes, err := clientset.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
 			panic(err.Error())
 		}

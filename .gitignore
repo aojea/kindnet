@@ -13,3 +13,5 @@
 
 #
 *.swp
+.gopath~/
+vendor/src
