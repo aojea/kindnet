@@ -11,5 +11,10 @@ podCIDR assigned and install static routes to provide connectivity.
 In addition, the container has the last version of the  cniplugin, that can be
 used to deploy them inside the k8s nodes.
 
+TODO
+
+Rolling updates
+Windows support
+Multi-platform support
 
 
