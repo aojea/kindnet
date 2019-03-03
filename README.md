@@ -40,14 +40,18 @@ plugins in /opt/cni/bin.
 
 3. Rund a DaemonSet with the `kindnetd` daemon
 
+## WARNING
+
+This CNI plugin is meant to be used only in testing environments
 
 ## TODO
 
-Add proper logging
-Rolling updates
-Windows support
-Multi-platform support
-[Configure liveness and readiness
+- [ ] Clean routes on exit
+- [ ] Add logging
+- [ ] Rolling updates
+- [ ] Windows support
+- [ ] Multi-platform support
+- [ ] [Configure liveness and readiness
 probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/)
 
 
