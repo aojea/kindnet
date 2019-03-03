@@ -46,5 +46,7 @@ plugins in /opt/cni/bin.
 Rolling updates
 Windows support
 Multi-platform support
+[Configure liveness and readiness
+probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/)
 
 
