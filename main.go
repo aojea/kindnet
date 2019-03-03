@@ -41,24 +41,19 @@ func main() {
 	}
 	// initates the loop
 	for {
-		pods, err := clientset.CoreV1().Pods("").List(metav1.ListOptions{})
+		nodes, err := clientset.CoreV1().Nodes("").List(metav1.ListOptions{})
 		if err != nil {
 			panic(err.Error())
 		}
-		fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
-
-		// Examples for error handling:
-		// - Use helper functions like e.g. errors.IsNotFound()
-		// - And/or cast to StatusError and use its properties like e.g. ErrStatus.Message
-		_, err = clientset.CoreV1().Pods("default").Get("example-xxxxx", metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			fmt.Printf("Pod not found\n")
-		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
-			fmt.Printf("Error getting pod %v\n", statusError.ErrStatus.Message)
-		} else if err != nil {
-			panic(err.Error())
-		} else {
-			fmt.Printf("Found pod\n")
+		fmt.Printf("There are %d nodes in the cluster\n", len(nodes.Items))
+		for _, node := range nodes.Items {
+			if node.Spec.PodCIDR == "" {
+				fmt.Printf("Node %v has no CIDR, ignoring", node.Name)
+				continue
+			} else {
+				fmt.Printf("Node %v has CIDR %s, occupying it in CIDR map",
+					node.Name, node.Spec.PodCIDR)
+			}
 		}
 
 		time.Sleep(10 * time.Second)

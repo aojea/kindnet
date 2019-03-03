@@ -152,8 +152,8 @@ spec:
       initContainers:
       - name: install-cni-bin
         image: aojea/kindnet
-        command: ["cp"]
-        args: ["-f", "/kindnet/cni/*", "/opt/cni/bin/"]
+        command: ["sh"]
+        args: ["-c", "cp -f /kindnet/cni/* /opt/cni/bin/"]
         volumeMounts:
         - name: cni-bin
           mountPath: /opt/cni/bin
@@ -169,7 +169,6 @@ spec:
       containers:
       - name: kindnet-cni
         image: aojea/kindnet
-        command: ["/kindnet/kindnetd"]
         resources:
           requests:
             cpu: "100m"
