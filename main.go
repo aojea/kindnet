@@ -42,11 +42,13 @@ func main() {
 		panic(err.Error())
 	}
 
+	// obtain the host and pod ip addresses
+	// if both ips are different we are not using the host network
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
 	if hostIP != podIP {
 		panic(err.Error())
 	}
-	// initates the loop
+	// initates the control loop
 	for {
 		// Gets the Nodes information from the API
 		nodes, err := clientset.CoreV1().Nodes().List(metav1.ListOptions{})
@@ -60,31 +62,28 @@ func main() {
 			var nodeIP string
 
 			// Obtain node internal IP
-			// TODO check if we need to add more sanity checks
-			// current we asume the ip exists
 			for _, address := range node.Status.Addresses {
 				if address.Type == "InternalIP" {
 					nodeIP = address.Address
 				}
 			}
 
+			// We don't need to install routes to our local subnet
 			if nodeIP != hostIP {
-
 				ip := net.ParseIP(nodeIP)
-
 				// Obtain Pod Subnet
 				if node.Spec.PodCIDR == "" {
-					fmt.Printf("Node %v has no CIDR, ignoring", node.Name)
+					fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
 					continue
 				}
 				dst, err := netlink.ParseIPNet(node.Spec.PodCIDR)
 				if err != nil {
 					panic(err.Error())
 				}
-				fmt.Printf("Node %v has CIDR %s",
+				fmt.Printf("Node %v has CIDR %s \n",
 					node.Name, node.Spec.PodCIDR)
 
-				// Add the route to the system if not present
+				// Check if the route exists
 				routeToDst := netlink.Route{Dst: dst, Gw: ip}
 				route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
 				if err != nil {
@@ -95,7 +94,7 @@ func main() {
 					if err := netlink.RouteAdd(&routeToDst); err != nil {
 						panic(err.Error())
 					}
-					fmt.Printf("Adding route to the system %v", routeToDst)
+					fmt.Printf("Adding route to the system %v \n", routeToDst)
 				}
 			}
 

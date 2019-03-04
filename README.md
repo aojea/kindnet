@@ -33,25 +33,14 @@ https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml`
 
 The manifest do the following:
 
-1. Copy an update version of the `bridge` and `host-local` CNI standard CNI
+1. Copy last stable version of the `bridge` and `host-local` CNI standard CNI
 plugins in /opt/cni/bin.
 
-2. Install the configuration file in /etc/cni/net.d/10-kindnet.conflist
+2. Install the configuration file in `/etc/cni/net.d/10-kindnet.conflist`
 
 3. Rund a DaemonSet with the `kindnetd` daemon
 
 ## WARNING
 
 This CNI plugin is meant to be used only in testing environments
-
-## TODO
-
-- [ ] Clean routes on exit
-- [ ] Add logging
-- [ ] Rolling updates
-- [ ] Windows support
-- [ ] Multi-platform support
-- [ ] [Configure liveness and readiness
-probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-probes/)
-
 
