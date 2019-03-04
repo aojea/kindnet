@@ -1,0 +1,58 @@
+version: 2
+jobs:
+  build:
+    docker:
+      - image: circleci/golang:1.11
+    working_directory: /go/src/github.com/aojea/kindnet
+    steps:
+      - checkout
+      - run: go get -u github.com/golang/dep/cmd/dep
+      - run:
+          name: run build
+          command: |
+            dep ensure
+            GOOS=linux go build -o kindnetd main.go
+      - run:
+          name: run tests
+          command: |
+            go fmt ./...
+            go vet ./...
+            go test -v ./...
+
+  deploy:
+    docker:
+      - image: circleci/golang:1.11
+    working_directory: /go/src/github.com/aojea/kindnet
+    steps:
+      - checkout
+      - run: go get -u github.com/mitchellh/gox
+      - run: go get -u github.com/tcnksm/ghr
+      - run: go get -u github.com/stevenmatthewt/semantics
+      - run:
+          name: cross compile
+          command: |
+            gox -osarch="linux/amd64 linux/arm" -output="dist/kindnet_{{.OS}}_{{.Arch}}"
+            cd dist/ && gzip *
+      - add_ssh_keys
+      - run:
+          name: create release
+          command: |
+            tag=$(semantics --output-tag)
+            if [ "$tag" ]; then
+              ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace $tag dist/
+            else
+              echo "The commit message(s) did not indicate a major/minor/patch version."
+            fi
+
+workflows:
+  version: 2
+  build-deploy:
+    jobs:
+      - build
+      - deploy:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
+
