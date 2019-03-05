@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: circleci/golang:1.11
+      - image: circleci/golang:1.12
     working_directory: /go/src/github.com/aojea/kindnet
     steps:
       - checkout
@@ -19,9 +19,9 @@ jobs:
             go vet ./...
             go test -v ./...
 
-  deploy:
+  crosscompile:
     docker:
-      - image: circleci/golang:1.11
+      - image: circleci/golang:1.12
     working_directory: /go/src/github.com/aojea/kindnet
     steps:
       - checkout
@@ -33,6 +33,17 @@ jobs:
           command: |
             gox -osarch="linux/amd64 linux/arm" -output="dist/kindnet_{{.OS}}_{{.Arch}}"
             cd dist/ && gzip *
+      - store_artifacts:
+          path: dist
+
+  release:
+    docker:
+      - image: circleci/golang:1.12
+    working_directory: /go/src/github.com/aojea/kindnet
+    steps:
+      - checkout
+      - run: go get -u github.com/tcnksm/ghr
+      - run: go get -u github.com/stevenmatthewt/semantics
       - add_ssh_keys
       - run:
           name: create release
@@ -44,15 +55,25 @@ jobs:
               echo "The commit message(s) did not indicate a major/minor/patch version."
             fi
 
+
 workflows:
   version: 2
   build-deploy:
     jobs:
       - build
-      - deploy:
+      - crosscompile:
           requires:
             - build
           filters:
             branches:
               only: master
+      - release:
+          requires:
+            - build
+            - crosscompile
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
 
