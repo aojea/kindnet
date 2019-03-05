@@ -7,17 +7,136 @@ jobs:
     steps:
       - checkout
       - run: go get -u github.com/golang/dep/cmd/dep
+      - run: mkdir -p workspace
       - run:
           name: run build
           command: |
             dep ensure
-            GOOS=linux go build -o kindnetd main.go
+            GOOS=linux go build -o workspace/kindnetd main.go
       - run:
           name: run tests
           command: |
             go fmt ./...
             go vet ./...
             go test -v ./...
+      - run:
+          name: download dependencies
+          command: |
+            curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
+            cp kubectl workspace/kubectl
+            curl -LO https://github.com/aojea/kind/releases/download/v.0.1-alpha/kind_linux_amd64.gz
+            gunzip kind_linux_amd64.gz
+            mv kind_linux_amd64 workspace/kind
+      - persist_to_workspace:
+          root: workspace
+          paths:
+            - kindnetd
+            - kubectl
+            - kind
+
+  e2e_ipv4:
+    machine:
+      enabled: true
+      docker_layer_caching: true
+    working_directory: ~/go/src/github.com/aojea/kindnet
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            chmod +x /tmp/workspace/*
+            sudo cp /tmp/workspace/* /usr/local/bin/
+      - run:
+          name: Build kindnetd dockerfile
+          command: |
+            cp -f /tmp/workspace/kindnetd .
+            docker build -t aojea/kindnet:latest .
+      - run:
+          name: Create kind cluster
+          command: |
+            kind build node-image --type apt
+            kind create cluster --config test/config-ipv4-ci.yaml --loglevel debug --image kindest/node:latest --wait 1m
+            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kubectl get nodes -o wide
+            kubectl get pods --all-namespaces -o wide
+            kubectl get services --all-namespaces -o wide
+      - run:
+          name: Run e2e tests
+          command: |
+            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            go get -u -v github.com/heptio/sonobuoy
+            sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
+
+            outFile=$(sonobuoy retrieve)
+            results=$(sonobuoy e2e $outFile)
+
+            echo $results
+
+            if echo $results | grep --quiet "failed tests: 0"; then
+              echo "|---- Success!"
+            else
+              echo "|---- Failure: E2E tests failed"
+              exit 1
+            fi
+
+  e2e_ipv6:
+    machine:
+      enabled: true
+      docker_layer_caching: true
+    working_directory: ~/go/src/github.com/aojea/kindnet
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - checkout
+      - run:
+          name: enable ipv6
+          command: |
+            cat <<'EOF' | sudo tee /etc/docker/daemon.json
+            {
+              "ipv6": true,
+              "fixed-cidr-v6": "2001:db8:1::/64"
+            }
+            EOF
+            sudo service docker restart
+      - run:
+          name: Install dependencies
+          command: |
+            chmod +x /tmp/workspace/*
+            sudo cp /tmp/workspace/* /usr/local/bin/
+      - run:
+          name: Create kindnetd dockerfile
+          command: |
+            cp -f /tmp/workspace/kindnetd .
+            docker build -t aojea/kindnet:latest .
+      - run:
+          name: Create kind cluster
+          command: |
+            kind build node-image --type apt
+            kind create cluster --ipv6 --config test/config-ipv6-ci.yaml --loglevel debug --image kindest/node:latest --wait 1m
+            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kubectl get nodes -o wide
+            kubectl get pods --all-namespaces -o wide
+            kubectl get services --all-namespaces -o wide
+      - run:
+          name: Run e2e tests
+          command: |
+            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            go get -u -v github.com/heptio/sonobuoy
+            sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
+
+            outFile=$(sonobuoy retrieve)
+            results=$(sonobuoy e2e $outFile)
+
+            echo $results
+
+            if echo $results | grep --quiet "failed tests: 0"; then
+              echo "|---- Success!"
+            else
+              echo "|---- Failure: E2E tests failed"
+              exit 1
+            fi
 
   crosscompile:
     docker:
@@ -61,12 +180,21 @@ workflows:
   build-deploy:
     jobs:
       - build
+      - e2e_ipv4:
+          requires:
+            - build
+      - e2e_ipv6:
+          requires:
+            - build
       - crosscompile:
           requires:
             - build
+            - e2e_ipv6
           filters:
+            tags:
+              only: /^v.*/
             branches:
-              only: master
+              ignore: /.*/
       - release:
           requires:
             - build

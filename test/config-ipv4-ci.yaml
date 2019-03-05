@@ -1,0 +1,22 @@
+# this config file contains all config fields with comments
+kind: Config
+apiVersion: kind.sigs.k8s.io/v1alpha2
+# 3 control plane node and 3 workers
+nodes:
+# the control plane node config
+- role: control-plane
+  replicas: 1
+  # patch the generated kubeadm config with some extra settings
+  kubeadmConfigPatches:
+  - |
+    apiVersion: kubeadm.k8s.io/v1beta1
+    kind: ClusterConfiguration
+    metadata:
+      name: config
+    networking:
+      podSubnet: "10.192.0.0/16"
+      serviceSubnet: "10.92.0.0/24"
+# the three workers
+- role: worker
+  # replicas specifes the number of nodes to create with this configuration
+  replicas: 2
