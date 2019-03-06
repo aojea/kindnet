@@ -106,7 +106,7 @@ If you don't see a command prompt, try pressing enter.
        valid_lft forever preferred_lft forever
 ```
 
-with pod connectivity between nodes (fd00:100::2 is the CoreDNS pod IPv6 address)
+with pod connectivity between nodes (`fd00:100::2` is the CoreDNS pod IPv6 address)
 
 
 ```
@@ -116,7 +116,7 @@ PING fd00:100::2 (fd00:100::2): 56 data bytes
 64 bytes from fd00:100::2: seq=1 ttl=62 time=0.151 ms
 ```
 
-and pod to service connectivity (fd00:1234::a is the CoreDNS service IPv6 address)
+and pod to service connectivity (`fd00:1234::a` is the CoreDNS service IPv6 address)
 
 ```
 / # nc -zv fd00:1234::a 53
@@ -128,5 +128,5 @@ if you want to provide IPv4 access to your IPv6 applications you can use a
 
 ## Acknowledgments
 
-This work is based on @leblanc's [Instructions on how to instantiate a multi-node, IPv6-only Kubernetes cluster.](https://github.com/leblancd/kube-v6)
+This work is based on @leblanc 's [Instructions on how to instantiate a multi-node, IPv6-only Kubernetes cluster.](https://github.com/leblancd/kube-v6)
 
