@@ -69,11 +69,15 @@ jobs:
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
+            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Networking|Services' --e2e-skip 'Slow|Alpha|Disruptive|Feature|Flaky|LoadBalancer'
+            kubectl wait --for=condition=Ready pod/sonobuoy -n heptio-sonobuoy
+            sonobuoy logs -v=3
+            sonobuoy logs -f -v=3
             mkdir output
             outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
 
+            sonobuoy e2e --show=passed $outFile
             echo $results
 
             if echo $results | grep --quiet "failed tests: 0"; then
@@ -130,11 +134,15 @@ jobs:
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
+            kubectl apply -f test/sonobuoy-ipv6.yaml
+            kubectl wait --for=condition=Ready pod/sonobuoy -n heptio-sonobuoy
+            sonobuoy logs -v=3
+            sonobuoy logs -f -v=3
             mkdir output
             outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
 
+            sonobuoy e2e --show=passed $outFile
             echo $results
 
             if echo $results | grep --quiet "failed tests: 0"; then
