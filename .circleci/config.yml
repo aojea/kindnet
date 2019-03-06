@@ -68,8 +68,8 @@ jobs:
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u -v github.com/heptio/sonobuoy
             sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
-
-            outFile=$(sonobuoy retrieve)
+            mkdir output
+            outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
 
             echo $results
@@ -80,6 +80,8 @@ jobs:
               echo "|---- Failure: E2E tests failed"
               exit 1
             fi
+      - store_artifacts:
+          path: output
 
   e2e_ipv6:
     machine:
@@ -125,8 +127,8 @@ jobs:
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u -v github.com/heptio/sonobuoy
             sonobuoy run --image-pull-policy=IfNotPresent -m Quick --wait
-
-            outFile=$(sonobuoy retrieve)
+            mkdir output
+            outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
 
             echo $results
@@ -137,6 +139,8 @@ jobs:
               echo "|---- Failure: E2E tests failed"
               exit 1
             fi
+      - store_artifacts:
+          path: output
 
   crosscompile:
     docker:

@@ -1,5 +1,7 @@
 # Simple CNI plugin with IPv4 and IPv6 support
 
+[![CircleCI](https://circleci.com/gh/aojea/kindnet.svg?style=svg)](https://circleci.com/gh/aojea/kindnet)
+
 The main goal of the project is to have a simple CNI plugin for Kubernetes with
 IPv4 and IPv6 support that provides the [Cluster
 Networking](https://kubernetes.io/docs/concepts/cluster-administration/networking/)
