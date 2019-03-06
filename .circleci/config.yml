@@ -65,6 +65,7 @@ jobs:
             kubectl get services --all-namespaces -o wide
       - run:
           name: Run e2e tests
+          no_output_timeout: 60m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
@@ -125,6 +126,7 @@ jobs:
             kubectl get services --all-namespaces -o wide
       - run:
           name: Run e2e tests
+          no_output_timeout: 60m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
