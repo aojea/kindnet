@@ -67,25 +67,8 @@ jobs:
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Networking|Services' --e2e-skip 'Slow|Alpha|Disruptive|Feature|Flaky|LoadBalancer' --wait
-            mkdir output
-            # Avoid flakiness retrieving the logs
-            for i in `seq 1 3`; do if sonobuoy retrieve; then break; fi; sleep 5 ; done
-            sonobuoy logs -v 5
-            outFile=$(sonobuoy retrieve output/)
-            results=$(sonobuoy e2e $outFile)
-
-            sonobuoy e2e --show=passed $outFile
-            echo $results
-
-            if echo $results | grep --quiet "failed tests: 0"; then
-              echo "|---- Success!"
-            else
-              echo "|---- Failure: E2E tests failed"
-              exit 1
-            fi
-      - store_artifacts:
-          path: output
+            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Networking|Services' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer' --wait
+            sonobuoy logs -v 5 | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
 
   e2e_ipv6:
     machine:
@@ -106,6 +89,10 @@ jobs:
             }
             EOF
             sudo service docker restart
+      - run:
+          name: Add fake external IPv6 address
+          command: |
+            sudo ip -6 addr add 2001:4860:4860::8888 dev docker0
       - run:
           name: Install dependencies
           command: |
@@ -135,24 +122,7 @@ jobs:
             kubectl wait --for=condition=Ready pod/sonobuoy -n heptio-sonobuoy
             # Wait until sonobuoy finish
             while ! kubectl -n heptio-sonobuoy get pods | grep e2e | grep Complete; do sleep 10; done
-            # Avoid flakiness retrieving the logs
-            for i in `seq 1 3`; do if sonobuoy retrieve; then break; fi; sleep 5 ; done
-            sonobuoy logs -v 5
-            mkdir output
-            outFile=$(sonobuoy retrieve output/)
-            results=$(sonobuoy e2e $outFile)
-
-            sonobuoy e2e --show=passed $outFile
-            echo $results
-
-            if echo $results | grep --quiet "failed tests: 0"; then
-              echo "|---- Success!"
-            else
-              echo "|---- Failure: E2E tests failed"
-              exit 1
-            fi
-      - store_artifacts:
-          path: output
+            sonobuoy logs -v 5 | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
 
   crosscompile:
     docker:
