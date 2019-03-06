@@ -123,3 +123,10 @@ and pod to service connectivity (fd00:1234::a is the CoreDNS service IPv6 addres
 fd00:1234::a ([fd00:1234::a]:53) open
 ```
 
+if you want to provide IPv4 access to your IPv6 applications you can use a
+[Dual-Stack Ingress Controller](https://github.com/leblancd/kube-v6/tree/master/dual-stack-ingress)
+
+## Acknowledgments
+
+This work is based on @leblanc's [Instructions on how to instantiate a multi-node, IPv6-only Kubernetes cluster.](https://github.com/leblancd/kube-v6)
+
