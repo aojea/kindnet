@@ -42,7 +42,9 @@ plugins in /opt/cni/bin.
 
 3. Rund a DaemonSet with the `kindnetd` daemon
 
-## WARNING
+## How to use it
 
-This CNI plugin is meant to be used only in testing environments
+This CNI plugin is meant to be used only in testing environments.
+
+[How to create a Kubernetes IPv6 Cluster](docs/Kubernetes-IPv6-Cluster.md)
 
