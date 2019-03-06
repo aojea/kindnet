@@ -112,7 +112,7 @@ data:
           "capabilities": {"ipRanges": true},
           "isGateway": true,
           "hairpinMode": true,
-          "ipMasq": true,
+          "ipMasq": false,
           "ipam": {
             "type": "host-local",
             "routes": [
