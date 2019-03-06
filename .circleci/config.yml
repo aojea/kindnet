@@ -59,7 +59,7 @@ jobs:
             kind build node-image --type apt
             kind create cluster --config test/config-ipv4-ci.yaml --loglevel debug --image kindest/node:latest --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
-            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l k8s-app=kube-dns pods
+            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l app=kindnet pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
@@ -119,7 +119,7 @@ jobs:
             kind build node-image --type apt
             kind create cluster --ipv6 --config test/config-ipv6-ci.yaml --loglevel debug --image kindest/node:latest --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
-            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l k8s-app=kube-dns pods
+            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l app=kindnet pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
