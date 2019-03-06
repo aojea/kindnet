@@ -30,7 +30,6 @@ jobs:
       - persist_to_workspace:
           root: workspace
           paths:
-            - kindnetd
             - kubectl
             - kind
 
@@ -51,7 +50,6 @@ jobs:
       - run:
           name: Build kindnetd dockerfile
           command: |
-            cp -f /tmp/workspace/kindnetd .
             docker build -t aojea/kindnet:latest .
       - run:
           name: Create kind cluster
@@ -65,7 +63,7 @@ jobs:
             kubectl get services --all-namespaces -o wide
       - run:
           name: Run e2e tests
-          no_output_timeout: 60m
+          no_output_timeout: 100m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
@@ -73,6 +71,7 @@ jobs:
             mkdir output
             # Avoid flakiness retrieving the logs
             for i in `seq 1 3`; do if sonobuoy retrieve; then break; fi; sleep 5 ; done
+            sonobuoy logs -v 5
             outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
 
@@ -113,9 +112,8 @@ jobs:
             chmod +x /tmp/workspace/*
             sudo cp /tmp/workspace/* /usr/local/bin/
       - run:
-          name: Create kindnetd dockerfile
+          name: Create kindnet dockerfile
           command: |
-            cp -f /tmp/workspace/kindnetd .
             docker build -t aojea/kindnet:latest .
       - run:
           name: Create kind cluster
@@ -139,6 +137,7 @@ jobs:
             while ! kubectl -n heptio-sonobuoy get pods | grep e2e | grep Complete; do sleep 10; done
             # Avoid flakiness retrieving the logs
             for i in `seq 1 3`; do if sonobuoy retrieve; then break; fi; sleep 5 ; done
+            sonobuoy logs -v 5
             mkdir output
             outFile=$(sonobuoy retrieve output/)
             results=$(sonobuoy e2e $outFile)
