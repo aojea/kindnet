@@ -151,9 +151,10 @@ spec:
       serviceAccountName: kindnet
       initContainers:
       - name: install-cni-bin
-        image: aojea/kindnet
-        command: ["sh"]
-        args: ["-c", "cp -f /kindnet/cni/* /opt/cni/bin/"]
+        image: busybox
+        command: ['sh', '-c', 'wget -qO-
+        https://github.com/containernetworking/plugins/releases/download/v0.7.4/cni-plugins-amd64-v0.7.4.tgz
+        | tar -C /opt/cni/bin -xvzf -']
         volumeMounts:
         - name: cni-bin
           mountPath: /opt/cni/bin
