@@ -115,6 +115,11 @@ jobs:
           no_output_timeout: 60m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            # Fake google.com
+            kubectl apply -f test/fake-google-com.yaml
+            kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
+            kubectl wait -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
+            # Run e2e tests
             go get -u github.com/heptio/sonobuoy
             kubectl apply -f test/sonobuoy-ipv6.yaml
             kubectl wait --for=condition=Ready pod/sonobuoy -n heptio-sonobuoy
