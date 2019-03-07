@@ -1,4 +1,5 @@
-FROM golang:1.12
+# STEP 1: Build executable binary
+FROM golang:1.12 AS builder
 
 # Install CNI binaries to /kindnet/cni
 ARG CNI_VERSION="v0.7.4"
@@ -15,8 +16,13 @@ RUN export ARCH=$(dpkg --print-architecture) \
 # Compile the application
 WORKDIR /go/src/kindnet
 COPY . .
-
 RUN go get -d -v ./...
-RUN go install -v ./...
+RUN go build -o /go/bin/kindnet
 
-CMD ["kindnet"]
+# STEP 2: Build small image
+FROM scratch
+
+COPY --from=builder /kindnet/cni /kindnet/cni
+COPY --from=builder /go/bin/kindnet /go/bin/kindnet
+
+CMD ["/go/bin/kindnet"]
