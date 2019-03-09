@@ -66,8 +66,9 @@ jobs:
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Conformance' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer' --wait
-            sonobuoy logs -v 5 | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
+            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Conformance' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer'
+            sonobuoy logs -f -v 5
+            sonobuoy logs | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
 
   e2e_ipv6:
     machine:
