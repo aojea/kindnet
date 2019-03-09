@@ -62,11 +62,11 @@ jobs:
             kubectl get services --all-namespaces -o wide
       - run:
           name: Run e2e tests
-          no_output_timeout: 140m
+          no_output_timeout: 200m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Networking' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer' --wait
+            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Conformance' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer' --wait
             sonobuoy logs -v 5 | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
 
   e2e_ipv6:
@@ -112,7 +112,7 @@ jobs:
             kubectl get services --all-namespaces -o wide
       - run:
           name: Run e2e tests
-          no_output_timeout: 60m
+          no_output_timeout: 200m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             # Fake google.com

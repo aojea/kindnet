@@ -69,9 +69,9 @@ data:
     spec:
       env:
       - name: E2E_FOCUS
-        value: 'Networking|Services'
+        value: 'Conformance'
       - name: E2E_SKIP
-        value: 'IPv4|DNS|LoadBalancer|Federation|functioning\sNodePort|preserve\ssource\spod|provide\sInternet\sconnection'
+        value: 'Slow|Alpha|Disruptive|Feature|Flaky|LoadBalancer'
       - name: E2E_PARALLEL
         value: '1'
       command: ["/run_e2e.sh"]
