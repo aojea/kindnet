@@ -1,5 +1,5 @@
 /*
-Copyright 2016 The Kubernetes Authors.
+Copyright 2019 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -19,24 +19,40 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"text/template"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
 )
 
+// kindnetd is a simple networking daemon to complete kind's CNI implementation
+// kindnetd will ensure routes to the other node's PodCIDR via their InternalIP
+// kindnetd will also write a templated cni config supplied with PodCIDR
+// kindnetd will add rules to non masquerade Pod2Pod network traffic
+//
+// input envs:
+// - HOST_IP: hould be populated by downward API
+// - POD_IP: should be populated by downward API
+// - CNI_CONFIG_TEMPLATE: the cni .conflist template, run with {{ .PodCIDR }}
+
+// TODO: improve logging & error handling
+
 func main() {
-	// creates the in-cluster config
+	// create a client
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
-	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err.Error())
@@ -45,64 +61,305 @@ func main() {
 	// obtain the host and pod ip addresses
 	// if both ips are different we are not using the host network
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
+	fmt.Printf("hostIP = %s\npodIP = %s\n", hostIP, podIP)
 	if hostIP != podIP {
-		panic(err.Error())
+		panic(fmt.Sprintf(
+			"hostIP(= %q) != podIP(= %q) but must be running with host network: ",
+			hostIP, podIP,
+		))
 	}
-	// initates the control loop
+
+	// used to track if the cni config inputs changed and write the config
+	cniConfigWriter := &CNIConfigWriter{
+		path:     CNIConfigPath,
+		template: os.Getenv("CNI_CONFIG_TEMPLATE"),
+	}
+	// setup nodes reconcile function, closes over arguments
+	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP)
+	// setup the masq daemon
+	masqChain = utiliptables.Chain(*masqChainFlag)
+
+	c := NewMasqConfig(*noMasqueradeAllReservedRangesFlag)
+
+	logs.InitLogs()
+	defer logs.FlushLogs()
+
+	verflag.PrintAndExitIfRequested()
+
+	m := NewMasqDaemon(c)
+	m.Run()
+
+	// main control loop
 	for {
 		// Gets the Nodes information from the API
 		nodes, err := clientset.CoreV1().Nodes().List(metav1.ListOptions{})
 		if err != nil {
 			panic(err.Error())
 		}
-		fmt.Printf("There are %d nodes in the cluster\n", len(nodes.Items))
 
-		// Iterate over all the nodes information
-		for _, node := range nodes.Items {
-			var nodeIP string
-
-			// Obtain node internal IP
-			for _, address := range node.Status.Addresses {
-				if address.Type == "InternalIP" {
-					nodeIP = address.Address
-				}
-			}
-
-			// We don't need to install routes to our local subnet
-			if nodeIP != hostIP {
-				ip := net.ParseIP(nodeIP)
-				// Obtain Pod Subnet
-				if node.Spec.PodCIDR == "" {
-					fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
-					continue
-				}
-				dst, err := netlink.ParseIPNet(node.Spec.PodCIDR)
-				if err != nil {
-					panic(err.Error())
-				}
-				fmt.Printf("Node %v has CIDR %s \n",
-					node.Name, node.Spec.PodCIDR)
-
-				// Check if the route exists
-				routeToDst := netlink.Route{Dst: dst, Gw: ip}
-				route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
-				if err != nil {
-					panic(err.Error())
-				}
-				// Add route if not present
-				if len(route) == 0 {
-					if err := netlink.RouteAdd(&routeToDst); err != nil {
-						panic(err.Error())
-					}
-					fmt.Printf("Adding route to the system %v \n", routeToDst)
-				}
-			}
-
+		// reconcile the nodes
+		if err := reconcileNodes(nodes); err != nil {
+			panic(err.Error())
 		}
 
-		// Writes the routes to the Pod Subnets in other nodes
-
-		// Sleep
+		// rate limit
 		time.Sleep(10 * time.Second)
 	}
+}
+
+// nodeNodesReconciler returns a reconciliation func for nodes
+func makeNodesReconciler(cniConfigWriter *CNIConfigWriter, hostIP string) func(*corev1.NodeList) error {
+	// reconciles a node
+	reconcileNode := func(node corev1.Node) error {
+		// first get this node's IP
+		nodeIP := internalIP(node)
+		fmt.Printf("Handling node with IP: %s\n", nodeIP)
+
+		// This is our node. We don't need to add routes, but we might need to
+		// update the cni config.
+		if nodeIP == hostIP {
+			fmt.Printf("handling current node\n")
+			// compute the current cni config inputs
+			if err := cniConfigWriter.Write(
+				ComputeCNIConfigInputs(node),
+			); err != nil {
+				return err
+			}
+			// we're done handling this node
+			return nil
+		}
+
+		// don't do anything unless there is a PodCIDR
+		podCIDR := node.Spec.PodCIDR
+		if podCIDR == "" {
+			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
+			return nil
+		}
+
+		// parse subnet
+		dst, err := netlink.ParseIPNet(podCIDR)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Node %v has CIDR %s \n", node.Name, podCIDR)
+
+		// Check if the route exists to the other node's PodCIDR
+		ip := net.ParseIP(nodeIP)
+		routeToDst := netlink.Route{Dst: dst, Gw: ip}
+		route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
+		if err != nil {
+			return err
+		}
+
+		// Add route if not present
+		if len(route) == 0 {
+			if err := netlink.RouteAdd(&routeToDst); err != nil {
+				return err
+			}
+			fmt.Printf("Adding route %v \n", routeToDst)
+		}
+
+		// Non masquerade the pod 2 pod traffic
+
+		return nil
+	}
+
+	// return a reconciler for all the nodes
+	return func(nodes *corev1.NodeList) error {
+		for _, node := range nodes.Items {
+			if err := reconcileNode(node); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// internalIP returns the internalIP address for node
+func internalIP(node corev1.Node) string {
+	for _, address := range node.Status.Addresses {
+		if address.Type == "InternalIP" {
+			return address.Address
+		}
+	}
+	return ""
+}
+
+/* iptables management */
+
+var (
+	// name of nat chain for iptables masquerade rules
+	masqChain     utiliptables.Chain
+	masqChainFlag = flag.String("masq-chain", "KIND-MASQ-AGENT", `Name of nat chain for iptables masquerade rules.`)
+)
+
+// config object
+type MasqConfig struct {
+	NonMasqueradeCIDRs []string
+}
+
+// daemon object
+type MasqDaemon struct {
+	config   *MasqConfig
+	iptables utiliptables.Interface
+}
+
+// returns a MasqDaemon with default values, including an initialized utiliptables.Interface
+func NewMasqDaemon(c *MasqConfig, protocol utiliptables.Protocol) *MasqDaemon {
+	execer := utilexec.New()
+	dbus := utildbus.New()
+	iptables := utiliptables.New(execer, dbus, protocol)
+	return &MasqDaemon{
+		config:   c,
+		iptables: iptables,
+	}
+}
+
+const cidrParseErrFmt = "CIDR %q could not be parsed, %v"
+const cidrAlignErrFmt = "CIDR %q is not aligned to a CIDR block, ip: %q network: %q"
+
+func validateCIDR(cidr string) error {
+	// parse test
+	ip, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return fmt.Errorf(cidrParseErrFmt, cidr, err)
+	}
+	// alignment test
+	if !ip.Equal(ipnet.IP) {
+		return fmt.Errorf(cidrAlignErrFmt, cidr, ip, ipnet.String())
+	}
+	return nil
+}
+
+func (m *MasqDaemon) syncMasqRules() error {
+	// make sure our custom chain for non-masquerade exists
+	m.iptables.EnsureChain(utiliptables.TableNAT, masqChain)
+
+	// ensure that any non-local in POSTROUTING jumps to masqChain
+	if err := m.ensurePostroutingJump(); err != nil {
+		return err
+	}
+
+	// build up lines to pass to iptables-restore
+	lines := bytes.NewBuffer(nil)
+	writeLine(lines, "*nat")
+	writeLine(lines, utiliptables.MakeChainLine(masqChain)) // effectively flushes masqChain atomically with rule restore
+
+	// non-masquerade for user-provided CIDRs
+	for _, cidr := range m.config.NonMasqueradeCIDRs {
+		writeNonMasqRule(lines, cidr)
+	}
+
+	// masquerade all other traffic that is not bound for a --dst-type LOCAL destination
+	writeMasqRule(lines)
+
+	writeLine(lines, "COMMIT")
+	if err := m.iptables.RestoreAll(lines.Bytes(), utiliptables.NoFlushTables, utiliptables.NoRestoreCounters); err != nil {
+		return err
+	}
+	return nil
+}
+
+func postroutingJumpComment() string {
+	return fmt.Sprintf("kindnetd: ensure nat POSTROUTING directs all non-LOCAL destination traffic to our custom %s chain", masqChain)
+}
+
+func (m *MasqDaemon) ensurePostroutingJump() error {
+	if _, err := m.iptables.EnsureRule(utiliptables.Append, utiliptables.TableNAT, utiliptables.ChainPostrouting,
+		"-m", "comment", "--comment", postroutingJumpComment(),
+		"-m", "addrtype", "!", "--dst-type", "LOCAL", "-j", string(masqChain)); err != nil {
+		return fmt.Errorf("failed to ensure that %s chain %s jumps to MASQUERADE: %v", utiliptables.TableNAT, masqChain, err)
+	}
+	return nil
+}
+
+const nonMasqRuleComment = `-m comment --comment "kindnetd: local traffic is not subject to MASQUERADE"`
+
+func writeNonMasqRule(lines *bytes.Buffer, cidr string) {
+	writeRule(lines, utiliptables.Append, masqChain, nonMasqRuleComment, "-d", cidr, "-j", "RETURN")
+}
+
+const masqRuleComment = `-m comment --comment "kindnetd: outbound traffic is subject to MASQUERADE (must be last in chain)"`
+
+func writeMasqRule(lines *bytes.Buffer) {
+	writeRule(lines, utiliptables.Append, masqChain, masqRuleComment, "-j", "MASQUERADE")
+}
+
+// Similar syntax to utiliptables.Interface.EnsureRule, except you don't pass a table
+// (you must write these rules under the line with the table name)
+func writeRule(lines *bytes.Buffer, position utiliptables.RulePosition, chain utiliptables.Chain, args ...string) {
+	fullArgs := append([]string{string(position), string(chain)}, args...)
+	writeLine(lines, fullArgs...)
+}
+
+// Join all words with spaces, terminate with newline and write to buf.
+func writeLine(lines *bytes.Buffer, words ...string) {
+	lines.WriteString(strings.Join(words, " ") + "\n")
+}
+
+/* cni config management */
+
+// CNIConfigInputs is supplied to the CNI config template
+type CNIConfigInputs struct {
+	PodCIDR string
+}
+
+// ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
+func ComputeCNIConfigInputs(node corev1.Node) CNIConfigInputs {
+	podCIDR := node.Spec.PodCIDR
+	return CNIConfigInputs{
+		PodCIDR: podCIDR,
+	}
+}
+
+// CNIConfigPath is where kindnetd will write the computed CNI config
+const CNIConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
+
+// CNIConfigWriter no-ops re-writing config with the same inputs
+// NOTE: should only be called from a single goroutine
+type CNIConfigWriter struct {
+	path       string
+	template   string
+	lastInputs CNIConfigInputs
+}
+
+// Write will write the config based on
+func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
+	if inputs == c.lastInputs {
+		return nil
+	}
+
+	// use an extension not recognized by CNI to write the contents initially
+	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
+	// then we can rename to atomically make the file appear
+	f, err := os.Create(c.path + ".temp")
+	if err != nil {
+		return err
+	}
+
+	// actually write the config
+	if err := writeCNIConfig(f, c.template, inputs); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return err
+	}
+	f.Sync()
+	f.Close()
+
+	// then we can rename to the target config path
+	if err := os.Rename(f.Name(), c.path); err != nil {
+		return err
+	}
+
+	// we're safely done now, record the inputs
+	c.lastInputs = inputs
+	return nil
+}
+
+func writeCNIConfig(w io.Writer, rawTemplate string, data CNIConfigInputs) error {
+	t, err := template.New("cni-json").Parse(rawTemplate)
+	if err != nil {
+		return errors.Wrap(err, "failed to parse cni template")
+	}
+	return t.Execute(w, &data)
 }
