@@ -1,8 +1,8 @@
 ---
-apiVersion: extensions/v1beta1
+apiVersion: policy/v1beta1
 kind: PodSecurityPolicy
 metadata:
-  name: psp.kindnet.unprivileged
+  name: kindnet
   annotations:
     seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default
     seccomp.security.alpha.kubernetes.io/defaultProfileName: docker/default
@@ -29,7 +29,7 @@ spec:
   allowPrivilegeEscalation: false
   defaultAllowPrivilegeEscalation: false
   # Capabilities
-  allowedCapabilities: ['NET_ADMIN']
+  allowedCapabilities: ["NET_RAW", "NET_ADMIN"]
   defaultAddCapabilities: []
   requiredDropCapabilities: []
   # Host namespaces
@@ -48,16 +48,14 @@ apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
   name: kindnet
 rules:
-  - apiGroups: ['extensions']
-    resources: ['podsecuritypolicies']
-    verbs: ['use']
-    resourceNames: ['psp.kindnet.unprivileged']
   - apiGroups:
-      - ""
+    - policy
     resources:
-      - pods
+    - podsecuritypolicies
     verbs:
-      - get
+    - use
+    resourceNames: 
+    - kindnet
   - apiGroups:
       - ""
     resources:
@@ -65,12 +63,6 @@ rules:
     verbs:
       - list
       - watch
-  - apiGroups:
-      - ""
-    resources:
-      - nodes/status
-    verbs:
-      - patch
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1beta1
@@ -99,31 +91,39 @@ metadata:
   labels:
     tier: node
     app: kindnet
+    k8s-app: kindnet
 data:
-  cni-conf.json: |
+  cni-conf-template.json: |
     {
       "cniVersion": "0.3.1",
-      "name": "kindOfBridge",
+      "name": "kindnet",
       "plugins": [
         {
           "type": "bridge",
-          "bridge": "kind0",
-          "capabilities": {"ipRanges": true},
-          "isGateway": true,
-          "hairpinMode": true,
           "ipMasq": false,
+          "isDefaultGateway": true,
+          "hairpinMode": true,
           "ipam": {
             "type": "host-local",
+            "dataDir": "/run/cni-ipam-state",
             "routes": [
               {"dst": "0.0.0.0/0"},
               {"dst": "::/0"}
+            ],
+            "ranges": [
+              [
+                {
+                  "subnet": "{{ .PodCIDR }}"
+                }
+              ]
             ]
           }
         },
         {
           "type": "portmap",
-          "capabilities": {"portMappings": true},
-          "snat": false
+          "capabilities": {
+            "portMappings": true
+          }
         }
       ]
     }
@@ -131,36 +131,28 @@ data:
 apiVersion: extensions/v1beta1
 kind: DaemonSet
 metadata:
-  name: kindnet-ds
+  name: kindnet
   namespace: kube-system
   labels:
     tier: node
-    app: kindnet 
+    app: kindnet
+    k8s-app: kindnet
 spec:
   template:
     metadata:
       labels:
         tier: node
         app: kindnet
+        k8s-app: kindnet
     spec:
       hostNetwork: true
       tolerations:
       - operator: Exists
         effect: NoSchedule
       serviceAccountName: kindnet
-      initContainers:
-      - name: install-cni-cfg
-        image: busybox
-        command: ["cp"]
-        args: ["-f", "/kind/kube-kindnet/cni-conf.json", "/etc/cni/net.d/10-kindnet.conflist"]
-        volumeMounts:
-        - name: cni-cfg
-          mountPath: /etc/cni/net.d
-        - name: kindnet-cfg
-          mountPath: /kind/kube-kindnet/
       containers:
       - name: kindnet-cni
-        image: aojea/kindnet
+        image: aojea/kindnetd:0.2.0
         env:
           - name: HOST_IP
             valueFrom:
@@ -170,6 +162,14 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
+          - name: CNI_CONFIG_TEMPLATE
+            valueFrom:
+              configMapKeyRef:
+                name: kindnet-cfg
+                key: cni-conf-template.json
+        volumeMounts:
+        - name: cni-cfg
+          mountPath: /etc/cni/net.d
         resources:
           requests:
             cpu: "100m"
@@ -180,12 +180,9 @@ spec:
         securityContext:
           privileged: false
           capabilities:
-             add: ["NET_ADMIN"]
+            add: ["NET_RAW", "NET_ADMIN"]
       volumes:
         - name: cni-cfg
           hostPath:
             path: /etc/cni/net.d
-        - name: kindnet-cfg
-          configMap:
-            name: kindnet-cfg
 ---
