@@ -83,6 +83,7 @@ jobs:
             kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
+            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
@@ -91,7 +92,7 @@ jobs:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
-            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\] DNS" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
+            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
 
   e2e_ipv6:
     machine:
@@ -129,6 +130,7 @@ jobs:
             kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
+            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
@@ -143,7 +145,7 @@ jobs:
             kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
             kubectl wait -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             # Run e2e tests
-            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\] DNS" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
+            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|DNS|Feature:[^\]]+|Flaky)\]"
 
 workflows:
   version: 2
