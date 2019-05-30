@@ -54,9 +54,9 @@ jobs:
       - run:
           name: Create kindnet image
           command: |
-            docker build -t aojea/kindnetd . 
+            docker build -t aojea/kindnetd:test . 
             mkdir /tmp/workspace/docker
-            docker save -o /tmp/workspace/docker/kindnet.tar aojea/kindnetd:latest
+            docker save -o /tmp/workspace/docker/kindnet.tar aojea/kindnetd:test
       - persist_to_workspace:
           root: /tmp/workspace
           paths:
