@@ -53,6 +53,25 @@ import (
 
 // TODO: improve logging & error handling
 
+// NewKindnet returns a Kindnet with default values
+func NewKindnet(cniConfigWriter *CNIConfigWriter, ipv6 bool, kindnetConfig *KindnetConfig) *Kindnet {
+	execer := utilexec.New()
+	dbus := utildbus.New()
+	protocol := utiliptables.ProtocolIpv4
+	if ipv6 {
+		protocol = utiliptables.ProtocolIpv6
+	}
+	masqChain = utiliptables.Chain(*masqChainFlag)
+	iptables := utiliptables.New(execer, dbus, protocol)
+	// used to create routes and iptables rules
+
+	return &Kindnet{
+		config:    kindnetConfig,
+		iptables:  iptables,
+		cniConfig: cniConfigWriter,
+	}
+}
+
 func main() {
 	// create a client
 	config, err := rest.InClusterConfig()
@@ -85,21 +104,12 @@ func main() {
 		path:     CNIConfigPath,
 		template: os.Getenv("CNI_CONFIG_TEMPLATE"),
 	}
-	execer := utilexec.New()
-	dbus := utildbus.New()
-	protocol := utiliptables.ProtocolIpv4
+	ipv6 := false
 	if strings.Contains(hostIP, ":") {
-		protocol = utiliptables.ProtocolIpv6
+		ipv6 = true
 	}
-	masqChain = utiliptables.Chain(*masqChainFlag)
-	iptables := utiliptables.New(execer, dbus, protocol)
 	// used to create routes and iptables rules
-
-	kindnetd := &Kindnet{
-		config:    kindnetConfig,
-		iptables:  iptables,
-		cniConfig: cniConfigWriter,
-	}
+	kindnetd := NewKindnet(cniConfigWriter, ipv6, kindnetConfig)
 
 	// setup nodes reconcile function, closes over arguments
 	reconcileNodes := makeNodesReconciler(kindnetd, hostIP)
