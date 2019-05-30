@@ -71,6 +71,7 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp/workspace
+      - checkout
       - run:
           name: Install dependencies
           command: |
@@ -85,10 +86,10 @@ jobs:
           command: |
             kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
-            kubectl apply -f install-kindnet.yanml
       - run:
           name: Run e2e tests
           no_output_timeout: 200m
@@ -105,6 +106,7 @@ jobs:
       - attach_workspace:
           at: /tmp/workspace
       - checkout
+      - run: sudo sed -i 's/^\:\:1.*/::1 localhost ip6-localhost ip6-loopback/g' /etc/hosts
       - run:
           name: enable ipv6
           command: |
@@ -133,10 +135,10 @@ jobs:
           command: |
             kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
-            kubectl apply -f install-kindnet.yanml
       - run:
           name: Run e2e tests
           no_output_timeout: 200m
