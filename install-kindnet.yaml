@@ -95,11 +95,11 @@ metadata:
 data:
   cni-conf-template.json: |
     {
-      "cniVersion": "0.3.1",
+      "cniVersion": "0.4.0",
       "name": "kindnet",
       "plugins": [
         {
-          "type": "bridge",
+          "type": "ptp",
           "ipMasq": false,
           "isDefaultGateway": true,
           "hairpinMode": true,
@@ -152,7 +152,7 @@ spec:
       serviceAccountName: kindnet
       containers:
       - name: kindnet-cni
-        image: aojea/kindnetd:0.2.0
+        image: aojea/kindnetd:latest
         env:
           - name: HOST_IP
             valueFrom:

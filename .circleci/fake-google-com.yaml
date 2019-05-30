@@ -1,0 +1,58 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-google
+spec:
+  selector:
+    matchLabels:
+      run: my-google
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        run: my-google
+    spec:
+      containers:
+      - name: my-google
+        image: k8s.gcr.io/test-webserver
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-google
+  labels:
+    run: my-google
+spec:
+  ports:
+  - port: 80
+    protocol: TCP
+  selector:
+    run: my-google
+---
+apiVersion: v1
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        rewrite name google.com my-google.default.svc.cluster.local
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           upstream
+           fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+---

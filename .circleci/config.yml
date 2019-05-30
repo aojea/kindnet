@@ -1,41 +1,50 @@
 version: 2
 jobs:
-  build:
+  build_kind:
     docker:
-      - image: circleci/golang:1.12
-    working_directory: /go/src/github.com/aojea/kindnet
+      - image: circleci/golang:1.12.1
+    working_directory: /go/src/sig.k8s.io/kind
     steps:
-      - checkout
-      - run: go get -u github.com/golang/dep/cmd/dep
-      - run: mkdir -p workspace
       - run:
-          name: run build
+          name: Prepare environment
           command: |
-            dep ensure
-            GOOS=linux go build -o workspace/kindnetd main.go
-      - run:
-          name: run tests
-          command: |
-            go fmt ./...
-            go vet ./...
-            go test -v ./...
-      - run:
-          name: download dependencies
-          command: |
-            curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl
-            cp kubectl workspace/kubectl
-            curl -LO https://github.com/aojea/kind/releases/download/v.0.1-beta/kind_linux_amd64.gz
-            gunzip kind_linux_amd64.gz
-            mv kind_linux_amd64 workspace/kind
+            git clone https://github.com/aojea/kind .
+            git checkout aojea/ipv6
+            mkdir -p workspace/bin
+      - run: hack/update-all.sh
+      - run: hack/ci/build-all.sh
+      - run: cp /go/bin/kind workspace/bin/kind
+      - run: chmod +x workspace/bin/kind
       - persist_to_workspace:
           root: workspace
           paths:
-            - kubectl
-            - kind
-
-  e2e_ipv4:
+            - bin
+  build_e2e:
+    docker:
+      - image: circleci/golang:1.12.1
+    working_directory: /go/src/k8s.io/kubernetes
+    steps:
+      - run: git clone https://github.com/kubernetes/kubernetes.git .
+      - run:
+          name: Prepare environment
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y rsync
+            mkdir -p workspace/bin
+      - run: make all WHAT="cmd/kubectl test/e2e/e2e.test vendor/github.com/onsi/ginkgo/ginkgo"
+      - run:
+          name: share binaries
+          command: |
+            cp _output/bin/e2e.test workspace/bin/e2e.test
+            cp _output/bin/kubectl workspace/bin/kubectl
+      - persist_to_workspace:
+          root: workspace
+          paths:
+            - bin
+  build:
     machine:
       enabled: true
+      image: ubuntu-1604:201903-01
       docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
@@ -43,36 +52,53 @@ jobs:
           at: /tmp/workspace
       - checkout
       - run:
+          name: Create kindnet image
+          command: |
+            docker build -t aojea/kindnetd . 
+            mkdir /tmp/workspace/docker
+            docker save -o /tmp/workspace/docker/kindnet.tar aojea/kindnetd:latest
+      - persist_to_workspace:
+          root: /tmp/workspace
+          paths:
+            - docker
+
+  e2e_ipv4:
+    machine:
+      enabled: true
+      image: ubuntu-1604:201903-01
+      docker_layer_caching: true
+    working_directory: ~/go/src/github.com/aojea/kindnet
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - run:
           name: Install dependencies
           command: |
-            chmod +x /tmp/workspace/*
-            sudo cp /tmp/workspace/* /usr/local/bin/
+            chmod +x /tmp/workspace/bin/*
+            sudo cp /tmp/workspace/bin/* /usr/local/bin/
       - run:
-          name: Build kindnetd dockerfile
+          name: Load kind node-image
           command: |
-            docker build -t aojea/kindnet:latest .
+             docker load < /tmp/workspace/docker/kindnet.tar
       - run:
           name: Create kind cluster
           command: |
-            kind create cluster --config test/config-ipv4-ci.yaml --loglevel debug --cni https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml --wait 1m
+            kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
-            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l app=kindnet pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
+            kubectl apply -f install-kindnet.yanml
       - run:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
-            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
-            go get -u github.com/heptio/sonobuoy
-            sonobuoy run --image-pull-policy=IfNotPresent --e2e-focus 'Conformance' --e2e-skip 'Slow|Serial|Alpha|Disruptive|Feature|Flaky|LoadBalancer'
-            sonobuoy logs -f -v 5
-            sonobuoy logs | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
+            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\] DNS" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
 
   e2e_ipv6:
     machine:
       enabled: true
+      image: ubuntu-1604:201903-01
       docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
@@ -96,102 +122,48 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            chmod +x /tmp/workspace/*
-            sudo cp /tmp/workspace/* /usr/local/bin/
+            chmod +x /tmp/workspace/bin/*
+            sudo cp /tmp/workspace/bin/* /usr/local/bin/
       - run:
-          name: Create kindnet dockerfile
+          name: Load kind node-image
           command: |
-            docker build -t aojea/kindnet:latest .
+             docker load < /tmp/workspace/docker/kindnet.tar
       - run:
           name: Create kind cluster
           command: |
-            kind create cluster --ipv6 --config test/config-ipv6-ci.yaml --loglevel debug --cni https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml --wait 1m
+            kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
-            kubectl wait -n kube-system --timeout=60s --for condition=Ready -l app=kindnet pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
+            kubectl apply -f install-kindnet.yanml
       - run:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             # Fake google.com
-            kubectl apply -f test/fake-google-com.yaml
+            kubectl apply -f .circleci/fake-google-com.yaml
             kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
             kubectl wait -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             # Run e2e tests
-            go get -u github.com/heptio/sonobuoy
-            kubectl apply -f test/sonobuoy-ipv6.yaml
-            kubectl wait --for=condition=Ready pod/sonobuoy -n heptio-sonobuoy
-            # Wait until sonobuoy finish
-            while ! kubectl -n heptio-sonobuoy get pods | grep e2e | grep Complete; do sleep 10; done
-            sonobuoy logs -v 5 | awk 'BEGIN{s=0} /FAIL/{s=1} 1; END{exit(s)}'
-
-  crosscompile:
-    docker:
-      - image: circleci/golang:1.12
-    working_directory: /go/src/github.com/aojea/kindnet
-    steps:
-      - checkout
-      - run: go get -u github.com/mitchellh/gox
-      - run: go get -u github.com/tcnksm/ghr
-      - run: go get -u github.com/stevenmatthewt/semantics
-      - run:
-          name: cross compile
-          command: |
-            gox -osarch="linux/amd64 linux/arm" -output="dist/kindnet_{{.OS}}_{{.Arch}}"
-            cd dist/ && gzip *
-      - store_artifacts:
-          path: dist
-
-  release:
-    docker:
-      - image: circleci/golang:1.12
-    working_directory: /go/src/github.com/aojea/kindnet
-    steps:
-      - checkout
-      - run: go get -u github.com/tcnksm/ghr
-      - run: go get -u github.com/stevenmatthewt/semantics
-      - add_ssh_keys
-      - run:
-          name: create release
-          command: |
-            tag=$(semantics --output-tag)
-            if [ "$tag" ]; then
-              ghr -t $GITHUB_TOKEN -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME --replace $tag dist/
-            else
-              echo "The commit message(s) did not indicate a major/minor/patch version."
-            fi
-
+            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\] DNS" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
 
 workflows:
   version: 2
-  build-deploy:
+  build_and_test:
     jobs:
+      - build_kind
+      - build_e2e
       - build
       - e2e_ipv4:
           requires:
             - build
+            - build_e2e
+            - build_kind
       - e2e_ipv6:
           requires:
             - build
-      - crosscompile:
-          requires:
-            - build
-            - e2e_ipv6
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
-      - release:
-          requires:
-            - build
-            - crosscompile
-          filters:
-            tags:
-              only: /^v.*/
-            branches:
-              ignore: /.*/
+            - build_e2e
+            - build_kind
 

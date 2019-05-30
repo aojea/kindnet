@@ -1,0 +1,11 @@
+# necessary for conformance
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+networking:
+  ipFamily: ipv4
+  disableDefaultCNI: true
+nodes:
+# the control plane node
+- role: control-plane
+- role: worker
+- role: worker
