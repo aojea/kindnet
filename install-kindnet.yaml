@@ -95,7 +95,7 @@ metadata:
 data:
   cni-conf-template.json: |
     {
-      "cniVersion": "0.4.0",
+      "cniVersion": "0.3.1",
       "name": "kindnet",
       "plugins": [
         {
@@ -152,7 +152,7 @@ spec:
       serviceAccountName: kindnet
       containers:
       - name: kindnet-cni
-        image: aojea/kindnetd:latest
+        image: aojea/kindnetd:test
         env:
           - name: HOST_IP
             valueFrom:
