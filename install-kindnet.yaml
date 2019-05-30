@@ -152,7 +152,7 @@ spec:
       serviceAccountName: kindnet
       containers:
       - name: kindnet-cni
-        image: aojea/kindnetd:test
+        image: aojea/kindnet
         env:
           - name: HOST_IP
             valueFrom:
