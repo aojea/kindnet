@@ -78,14 +78,11 @@ jobs:
             chmod +x /tmp/workspace/bin/*
             sudo cp /tmp/workspace/bin/* /usr/local/bin/
       - run:
-          name: Load kind node-image
-          command: |
-             docker load < /tmp/workspace/docker/kindnet.tar
-      - run:
           name: Create kind cluster
           command: |
             kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kind load image-archive /tmp/workspace/docker/kindnet.tar
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
@@ -127,14 +124,11 @@ jobs:
             chmod +x /tmp/workspace/bin/*
             sudo cp /tmp/workspace/bin/* /usr/local/bin/
       - run:
-          name: Load kind node-image
-          command: |
-             docker load < /tmp/workspace/docker/kindnet.tar
-      - run:
           name: Create kind cluster
           command: |
             kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
+            kind load image-archive /tmp/workspace/docker/kindnet.tar
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
