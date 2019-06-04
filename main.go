@@ -147,6 +147,10 @@ func makeNodesReconciler(kindnetd *Kindnet, hostIP string) func(*corev1.NodeList
 	reconcileNode := func(node corev1.Node) error {
 		// first get this node's IP
 		nodeIP := internalIP(node)
+		if nodeIP == "" {
+			fmt.Printf("Node %v has no internal IP, ignoring\n", node.Name)
+			return nil
+		}
 		fmt.Printf("Handling node with IP: %s\n", nodeIP)
 
 		// don't do anything unless there is a PodCIDR
