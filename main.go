@@ -149,6 +149,15 @@ func makeNodesReconciler(kindnetd *Kindnet, hostIP string) func(*corev1.NodeList
 		nodeIP := internalIP(node)
 		fmt.Printf("Handling node with IP: %s\n", nodeIP)
 
+		// don't do anything unless there is a PodCIDR
+		podCIDR := node.Spec.PodCIDR
+		if podCIDR == "" {
+			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
+			return nil
+		}
+
+		fmt.Printf("Node %v has CIDR %s \n", node.Name, podCIDR)
+
 		// This is our node. We don't need to add routes, but we might need to
 		// update the cni config.
 		if nodeIP == hostIP {
@@ -163,14 +172,7 @@ func makeNodesReconciler(kindnetd *Kindnet, hostIP string) func(*corev1.NodeList
 			return nil
 		}
 
-		// don't do anything unless there is a PodCIDR
-		podCIDR := node.Spec.PodCIDR
-		if podCIDR == "" {
-			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
-			return nil
-		}
-
-		fmt.Printf("Node %v has CIDR %s \n", node.Name, podCIDR)
+		// update kindnet configuration
 		kindnetd.config.PodCIDRs[podCIDR] = nodeIP
 
 		return nil
