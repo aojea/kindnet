@@ -145,7 +145,7 @@ jobs:
             kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
             kubectl wait -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             # Run e2e tests
-            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "DNS|Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
+            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
 
 workflows:
   version: 2
