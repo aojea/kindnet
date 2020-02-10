@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+ARG GOARCH="amd64"
 # STEP 1: Build kindnetd binary
-FROM golang:1.12.5 AS builder
+FROM golang:1.13.7 AS builder
 # golang envs
 ARG GOARCH="amd64"
 ARG GOOS=linux
@@ -24,9 +25,9 @@ ENV GOPROXY=https://proxy.golang.org
 WORKDIR /src
 COPY . .
 # build
-RUN go build -o /go/bin/kindnetd .
+RUN go build -o /go/bin/kindnetd ./cmd/kindnetd
 
 # STEP 2: Build small image
-FROM gcr.io/google-containers/debian-iptables:v11.0.2
-COPY --from=builder /go/bin/kindnetd /bin/kindnetd
+FROM gcr.io/google-containers/debian-iptables-${GOARCH}:v12.0.1
+COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 CMD ["/bin/kindnetd"]
