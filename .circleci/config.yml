@@ -5,6 +5,7 @@ jobs:
       - image: circleci/golang:1.13
     steps:
       - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-linux-amd64
+      - run: mkdir -p workspace/bin
       - run: cp kind-linux-amd64 workspace/bin/kind
       - run: chmod +x workspace/bin/kind
       - persist_to_workspace:
