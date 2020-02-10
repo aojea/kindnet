@@ -10,21 +10,24 @@ The idea was born because of the lack of IPv6 support in current CNI plugins
 and because there are no automatic alternatives to create a multinode kubernetes
 cluster with IPv6.
 
+## Important
+
+Kindnet is the default CNI plugin for [KIND](https://github.com/kubernetes-sigs/kind)
+and the code was moved to the KIND prokect in-tree.
+
+This repo is kept only for new feature development.
+
 ## Kindnet components
 
 It uses the following [standard CNI
 plugins](https://github.com/containernetworking/plugins)
 
-* `bridge`: creates a bridge, adds the host and the container to it.
+* `ptp`: creates a veth pair and adds the host and the container to it.
 * `host-local`: maintains a local database of allocated IPs. It uses the
   `ipRanges` capability to provide dynamic configuration for the Pods subnets.
 * `portmap`: An iptables-based portmapping plugin. Maps ports from the host's
   address space to the container.
 
-And our own daemon:
-
-* `kindnetd`:  polls the k8s api to get the list of Pod subnets assigned to 
-each node and install static routes on the local host to the other nodes.
 
 ## Installation
 
@@ -33,18 +36,4 @@ The plugin can be installed using the manifest [install-kindnet.yaml](install-ki
 `kubectl create -f
 https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml`
 
-The manifest do the following:
-
-1. Copy last stable version of the `bridge` and `host-local` CNI standard CNI
-plugins in /opt/cni/bin.
-
-2. Install the configuration file in `/etc/cni/net.d/10-kindnet.conflist`
-
-3. Rund a DaemonSet with the `kindnetd` daemon
-
-## How to use it
-
-This CNI plugin is meant to be used only in testing environments.
-
-[How to create a Kubernetes IPv6 Cluster](docs/Kubernetes-IPv6-Cluster.md)
 
