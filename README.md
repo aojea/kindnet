@@ -1,4 +1,4 @@
-# Simple CNI plugin with IPv4 and IPv6 support
+# Simple CNI plugin with IPv4, IPv6 and DualStack support
 
 [![CircleCI](https://circleci.com/gh/aojea/kindnet.svg?style=svg)](https://circleci.com/gh/aojea/kindnet)
 
@@ -9,6 +9,9 @@ Networking](https://kubernetes.io/docs/concepts/cluster-administration/networkin
 The idea was born because of the lack of IPv6 support in current CNI plugins
 and because there are no automatic alternatives to create a multinode kubernetes
 cluster with IPv6.
+
+The plugin only works on "simple" network environments, when all the cluster nodes
+belong to the same subnet.
 
 Kindnet evolved adding new features, as an embedded ipmasq agent and nowadays, 
 is the default CNI plugin for [KIND](https://github.com/kubernetes-sigs/kind)
