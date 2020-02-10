@@ -73,7 +73,7 @@ jobs:
           command: |
             KUBECONFIG="${HOME}/.kube/kind-test-config"
             export KUBECONFIG
-            kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
+            kind create cluster --image aojea/kindnode:latest --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             kind load image-archive /tmp/workspace/docker/kindnet.tar
             sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
@@ -123,7 +123,7 @@ jobs:
           name: Create kind cluster
           command: |
             export KUBECONFIG="${HOME}/.kube/kind-test-config"
-            kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
+            kind create cluster --image aojea/kindnode:latest --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             kind load image-archive /tmp/workspace/docker/kindnet.tar
             sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
