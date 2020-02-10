@@ -88,7 +88,7 @@ jobs:
             # setting this env prevents ginkgo e2e from trying to run provider setup
             export KUBECONFIG="${HOME}/.kube/kind-test-config"
             export KUBERNETES_CONFORMANCE_TEST='y'
-            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2 --ginkgo.parallel.total 8
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2
 
   e2e_ipv6:
     machine:
@@ -142,7 +142,7 @@ jobs:
             # Run e2e tests
             # setting this env prevents ginkgo e2e from trying to run provider setup
             export KUBERNETES_CONFORMANCE_TEST='y'
-            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2 --ginkgo.parallel.total 8
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2
 
 workflows:
   version: 2
