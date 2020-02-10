@@ -16,6 +16,7 @@ spec:
     - hostPath
   allowedHostPaths:
     - pathPrefix: "/etc/cni/net.d"
+    - pathPrefix: "/opt/cni/bin"
   readOnlyRootFilesystem: false
   # Users and groups
   runAsUser:
@@ -114,6 +115,13 @@ spec:
       - operator: Exists
         effect: NoSchedule
       serviceAccountName: kindnet
+      initContainers:
+      - name: install-cni-bin
+        image: aojea/kindnetd
+        command: ['sh', '-c', 'cp -f /opt/cni/bin/* /cni/ ']
+        volumeMounts:
+        - name: cni-bin
+          mountPath: /cni
       containers:
       - name: kindnet-cni
         image: aojea/kindnetd
@@ -147,9 +155,14 @@ spec:
           capabilities:
             add: ["NET_RAW", "NET_ADMIN"]
       volumes:
+      - name: cni-bin
+        hostPath:
+          path: /opt/cni/bin
+          type: DirectoryOrCreate
       - name: cni-cfg
         hostPath:
           path: /etc/cni/net.d
+          type: DirectoryOrCreate
       - name: xtables-lock
         hostPath:
           path: /run/xtables.lock
