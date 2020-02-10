@@ -3,17 +3,9 @@ jobs:
   build_kind:
     docker:
       - image: circleci/golang:1.12.1
-    working_directory: /go/src/sig.k8s.io/kind
     steps:
-      - run:
-          name: Prepare environment
-          command: |
-            git clone https://github.com/aojea/kind .
-            git checkout aojea/ipv6
-            mkdir -p workspace/bin
-      - run: hack/update-all.sh
-      - run: hack/ci/build-all.sh
-      - run: cp /go/bin/kind workspace/bin/kind
+      - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-linux-amd64
+      - run: cp kind-linux-amd64 workspace/bin/kind
       - run: chmod +x workspace/bin/kind
       - persist_to_workspace:
           root: workspace
@@ -54,7 +46,7 @@ jobs:
       - run:
           name: Create kindnet image
           command: |
-            docker build -t aojea/kindnetd:test . 
+            TAG="test" ./build.sh 
             mkdir /tmp/workspace/docker
             docker save -o /tmp/workspace/docker/kindnet.tar aojea/kindnetd:test
       - persist_to_workspace:
@@ -83,7 +75,7 @@ jobs:
             kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
-            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
+            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
@@ -130,7 +122,7 @@ jobs:
             kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
             export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
-            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
+            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
