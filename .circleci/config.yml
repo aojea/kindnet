@@ -88,7 +88,7 @@ jobs:
             # setting this env prevents ginkgo e2e from trying to run provider setup
             export KUBECONFIG="${HOME}/.kube/kind-test-config"
             export KUBERNETES_CONFORMANCE_TEST='y'
-            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]" --num-nodes 2 --ginkgo.parallel.total 8
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2 --ginkgo.parallel.total 8
 
   e2e_ipv6:
     machine:
@@ -135,14 +135,14 @@ jobs:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
+            export KUBECONFIG="${HOME}/.kube/kind-test-config"
             # Fake google.com
             kubectl apply -f .circleci/fake-google-com.yaml
             kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
             # Run e2e tests
             # setting this env prevents ginkgo e2e from trying to run provider setup
-            export KUBECONFIG="${HOME}/.kube/kind-test-config"
             export KUBERNETES_CONFORMANCE_TEST='y'
-            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]" --num-nodes 2 --ginkgo.parallel.total 8
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2 --ginkgo.parallel.total 8
 
 workflows:
   version: 2
