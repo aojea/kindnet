@@ -2,7 +2,7 @@ version: 2
 jobs:
   build_kind:
     docker:
-      - image: circleci/golang:1.12.1
+      - image: circleci/golang:1.13
     steps:
       - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-linux-amd64
       - run: cp kind-linux-amd64 workspace/bin/kind
@@ -13,7 +13,7 @@ jobs:
             - bin
   build_e2e:
     docker:
-      - image: circleci/golang:1.12.1
+      - image: circleci/golang:1.13
     working_directory: /go/src/k8s.io/kubernetes
     steps:
       - run: git clone https://github.com/kubernetes/kubernetes.git .
@@ -37,7 +37,6 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
@@ -58,7 +57,6 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
@@ -90,7 +88,6 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
