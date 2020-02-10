@@ -10,41 +10,50 @@ The idea was born because of the lack of IPv6 support in current CNI plugins
 and because there are no automatic alternatives to create a multinode kubernetes
 cluster with IPv6.
 
+Kindnet evolved adding new features, as an embedded ipmasq agent and nowadays, 
+is the default CNI plugin for [KIND](https://github.com/kubernetes-sigs/kind)
+
+All the stable code was moved to the KIND project in-tree.
+This repo is kept only for new features development and for experimenting
+using it on "real" clusters.
+
+
 ## Kindnet components
 
 It uses the following [standard CNI
 plugins](https://github.com/containernetworking/plugins)
 
-* `bridge`: creates a bridge, adds the host and the container to it.
+* `ptp`: creates a veth pair and adds the host and the container to it.
 * `host-local`: maintains a local database of allocated IPs. It uses the
   `ipRanges` capability to provide dynamic configuration for the Pods subnets.
 * `portmap`: An iptables-based portmapping plugin. Maps ports from the host's
   address space to the container.
 
-And our own daemon:
+And a daemon named `kindnetd` with the following features:
 
-* `kindnetd`:  polls the k8s api to get the list of Pod subnets assigned to 
-each node and install static routes on the local host to the other nodes.
+* `CNI config`: configures the CNI plugin dropping the file `/etc/cni/net.d/10-kindnet.conflist`
+* `routing`: install routes on the to the POD subnets in the other nodes
+* `ip-masq`: non masquerade traffic that is directed to PODs 
 
 ## Installation
 
-The plugin can be installed using the manifest [install-kindnet.yaml](install-kindnet.yaml)
+Kindnet can be installed on your cluster using the manifest [install-kindnet.yaml](install-kindnet.yaml)
 
 `kubectl create -f
 https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml`
 
-The manifest do the following:
 
-1. Copy last stable version of the `bridge` and `host-local` CNI standard CNI
-plugins in /opt/cni/bin.
+Kindnet installation manifest has an init container that drop the CNI binaries in the folder `/opt/cni/bin/`, however, you can install them directly supressing the init container in the manifest and
+following the next steps:
 
-2. Install the configuration file in `/etc/cni/net.d/10-kindnet.conflist`
-
-3. Rund a DaemonSet with the `kindnetd` daemon
-
-## How to use it
-
-This CNI plugin is meant to be used only in testing environments.
-
-[How to create a Kubernetes IPv6 Cluster](docs/Kubernetes-IPv6-Cluster.md)
+```sh
+export ARCH="amd64"
+export CNI_VERSION="v0.8.5"
+export CNI_TARBALL="${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz"
+export CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_TARBALL}"
+curl -sSL --retry 5 --output /tmp/cni.tgz "${CNI_URL}"
+mkdir -p /opt/cni/bin
+tar -C /opt/cni/bin -xzf /tmp/cni.tgz
+rm -rf /tmp/cni.tgz
+```
 

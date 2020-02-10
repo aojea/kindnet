@@ -2,18 +2,11 @@ version: 2
 jobs:
   build_kind:
     docker:
-      - image: circleci/golang:1.12.1
-    working_directory: /go/src/sig.k8s.io/kind
+      - image: circleci/golang:1.13
     steps:
-      - run:
-          name: Prepare environment
-          command: |
-            git clone https://github.com/aojea/kind .
-            git checkout aojea/ipv6
-            mkdir -p workspace/bin
-      - run: hack/update-all.sh
-      - run: hack/ci/build-all.sh
-      - run: cp /go/bin/kind workspace/bin/kind
+      - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-linux-amd64
+      - run: mkdir -p workspace/bin
+      - run: cp kind-linux-amd64 workspace/bin/kind
       - run: chmod +x workspace/bin/kind
       - persist_to_workspace:
           root: workspace
@@ -21,7 +14,7 @@ jobs:
             - bin
   build_e2e:
     docker:
-      - image: circleci/golang:1.12.1
+      - image: circleci/golang:1.13
     working_directory: /go/src/k8s.io/kubernetes
     steps:
       - run: git clone https://github.com/kubernetes/kubernetes.git .
@@ -45,7 +38,6 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
@@ -54,7 +46,7 @@ jobs:
       - run:
           name: Create kindnet image
           command: |
-            docker build -t aojea/kindnetd:test . 
+            TAG="test" ./build.sh 
             mkdir /tmp/workspace/docker
             docker save -o /tmp/workspace/docker/kindnet.tar aojea/kindnetd:test
       - persist_to_workspace:
@@ -66,7 +58,6 @@ jobs:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
@@ -80,11 +71,13 @@ jobs:
       - run:
           name: Create kind cluster
           command: |
+            KUBECONFIG="${HOME}/.kube/kind-test-config"
+            export KUBECONFIG
             kind create cluster --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
-            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
-            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
+            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
+            kubectl wait --timeout=90s -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
@@ -92,13 +85,15 @@ jobs:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
-            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
+            # setting this env prevents ginkgo e2e from trying to run provider setup
+            export KUBECONFIG="${HOME}/.kube/kind-test-config"
+            export KUBERNETES_CONFORMANCE_TEST='y'
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]" --num-nodes 2 --ginkgo.parallel.total 8
 
   e2e_ipv6:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
-      docker_layer_caching: true
     working_directory: ~/go/src/github.com/aojea/kindnet
     steps:
       - attach_workspace:
@@ -127,11 +122,12 @@ jobs:
       - run:
           name: Create kind cluster
           command: |
+            export KUBECONFIG="${HOME}/.kube/kind-test-config"
             kind create cluster --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
-            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             kind load image-archive /tmp/workspace/docker/kindnet.tar
-            sed -i 's/aojea\/kindnet/aojea\/kindnetd:test/' install-kindnet.yaml
+            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
             kubectl apply -f install-kindnet.yaml
+            kubectl wait --timeout=90s -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             kubectl get nodes -o wide
             kubectl get pods --all-namespaces -o wide
             kubectl get services --all-namespaces -o wide
@@ -139,13 +135,14 @@ jobs:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
-            export KUBECONFIG="$(kind get kubeconfig-path --name="kind")"
             # Fake google.com
             kubectl apply -f .circleci/fake-google-com.yaml
             kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
-            kubectl wait -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             # Run e2e tests
-            e2e.test --provider=local --kubeconfig=$(kind get kubeconfig-path --name="kind") --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]"
+            # setting this env prevents ginkgo e2e from trying to run provider setup
+            export KUBECONFIG="${HOME}/.kube/kind-test-config"
+            export KUBERNETES_CONFORMANCE_TEST='y'
+            e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "\[sig-network\].*Conformance" --ginkgo.skip "Alpha|Kubectl|\[(Disruptive|Feature:[^\]]+|Flaky)\]" --num-nodes 2 --ginkgo.parallel.total 8
 
 workflows:
   version: 2
