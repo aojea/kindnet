@@ -17,7 +17,6 @@ jobs:
       - image: circleci/golang:1.16
     working_directory: /go/src/k8s.io/kubernetes
     steps:
-      - run: git clone https://github.com/kubernetes/kubernetes.git .
       - run:
           name: Prepare environment
           command: |
