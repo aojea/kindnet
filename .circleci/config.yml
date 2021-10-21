@@ -27,7 +27,7 @@ jobs:
       - run:
           name: share binaries
           command: |
-            tar xvzf $TMP_DIR/kubernetes-test-linux-amd64.tar.gz \
+            tar xvzf ./kubernetes-test-linux-amd64.tar.gz \
               --directory workspace/bin
               --strip-components=3 kubernetes/test/bin/ginkgo kubernetes/test/bin/e2e.test
 
