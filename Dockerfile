@@ -14,10 +14,10 @@
 
 ARG GOARCH="amd64"
 # STEP 1: Build kindnetd binary
-FROM golang:1.13.7 AS builder
+FROM golang:1.16 AS builder
 # golang envs
 ARG GOARCH="amd64"
-ARG CNI_VERSION="v0.8.5"
+ARG CNI_VERSION="v1.0.1"
 ARG GOOS=linux
 ENV CGO_ENABLED=0
 ENV GO111MODULE="on"
@@ -26,7 +26,7 @@ ENV GOPROXY=https://proxy.golang.org
 WORKDIR /src
 COPY . .
 # build
-RUN go build -o /go/bin/kindnetd ./cmd/kindnetd
+RUN CGO_ENABLED=0 go build -o /go/bin/kindnetd ./cmd/kindnetd
 # Install CNI plugins
 RUN echo "Installing CNI binaries ..." \
     && export CNI_TARBALL="${CNI_VERSION}/cni-plugins-linux-${GOARCH}-${CNI_VERSION}.tgz" \
@@ -38,12 +38,13 @@ RUN echo "Installing CNI binaries ..." \
     && find /opt/cni/bin -type f -not \( \
          -iname host-local \
          -o -iname ptp \
+         -o -iname bridge \
          -o -iname portmap \
          -o -iname loopback \
       \) \
       -delete
 # STEP 2: Build small image
-FROM gcr.io/google-containers/debian-iptables-${GOARCH}:v12.0.1
+FROM k8s.gcr.io/build-image/debian-iptables:buster-v1.6.5
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /opt/cni/bin /opt/cni/bin
 CMD ["/bin/kindnetd"]
