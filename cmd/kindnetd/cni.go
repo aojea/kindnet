@@ -101,11 +101,51 @@ const cniConfigTemplate = `
 }
 `
 
+const cniConfigTemplateBridge = `
+{
+	"cniVersion": "0.3.1",
+	"name": "kindnet",
+	"plugins": [
+	{
+		"type": "bridge",
+		"ipMasq": false,
+		"isDefaultGateway": true,
+		"hairpinMode": true,
+		"ipam": {
+			"type": "host-local",
+			"dataDir": "/run/cni-ipam-state",
+			"routes": [
+				{{$first := true}}
+				{{- range $route := .DefaultRoutes}}
+				{{if $first}}{{$first = false}}{{else}},{{end}}
+				{ "dst": "{{ $route }}" }
+				{{- end}}
+			],
+			"ranges": [
+				{{$first := true}}
+				{{- range $cidr := .PodCIDRs}}
+				{{if $first}}{{$first = false}}{{else}},{{end}}
+				[ { "subnet": "{{ $cidr }}" } ]
+				{{- end}}
+			]
+		}
+	},
+	{
+		"type": "portmap",
+		"capabilities": {
+			"portMappings": true
+		}
+	}
+	]
+}
+`
+
 // CNIConfigWriter no-ops re-writing config with the same inputs
 // NOTE: should only be called from a single goroutine
 type CNIConfigWriter struct {
 	path       string
 	lastInputs CNIConfigInputs
+	bridge     bool
 }
 
 // Write will write the config based on
@@ -122,8 +162,13 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 		return err
 	}
 
+	template := cniConfigTemplate
+	if c.bridge {
+		template = cniConfigTemplateBridge
+	}
+
 	// actually write the config
-	if err := writeCNIConfig(f, cniConfigTemplate, inputs); err != nil {
+	if err := writeCNIConfig(f, template, inputs); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return err

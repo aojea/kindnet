@@ -85,9 +85,12 @@ func main() {
 		))
 	}
 
+	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
+	bridge := os.Getenv("CNI_BRIDGE")
 	// used to track if the cni config inputs changed and write the config
 	cniConfigWriter := &CNIConfigWriter{
-		path: cniConfigPath,
+		path:   cniConfigPath,
+		bridge: len(bridge) > 0,
 	}
 
 	// enforce ip masquerade rules
