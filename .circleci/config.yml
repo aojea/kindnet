@@ -2,9 +2,9 @@ version: 2
 jobs:
   build_kind:
     docker:
-      - image: circleci/golang:1.13
+      - image: circleci/golang:1.16
     steps:
-      - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.7.0/kind-linux-amd64
+      - run: wget https://github.com/kubernetes-sigs/kind/releases/download/v0.11.1/kind-linux-amd64
       - run: mkdir -p workspace/bin
       - run: cp kind-linux-amd64 workspace/bin/kind
       - run: chmod +x workspace/bin/kind
@@ -14,22 +14,23 @@ jobs:
             - bin
   build_e2e:
     docker:
-      - image: circleci/golang:1.13
+      - image: circleci/golang:1.16
     working_directory: /go/src/k8s.io/kubernetes
     steps:
       - run: git clone https://github.com/kubernetes/kubernetes.git .
       - run:
           name: Prepare environment
           command: |
-            sudo apt-get update
-            sudo apt-get install -y rsync
             mkdir -p workspace/bin
-      - run: make all WHAT="cmd/kubectl test/e2e/e2e.test vendor/github.com/onsi/ginkgo/ginkgo"
+            curl -L https://dl.k8s.io/v1.22.2/kubernetes-test-linux-amd64.tar.gz -o ./kubernetes-test-linux-amd64.tar.gz
+            curl -L https://dl.k8s.io/v1.22.2/bin/linux/amd64/kubectl -o workspace/bin/kubectl
       - run:
           name: share binaries
           command: |
-            cp _output/bin/e2e.test workspace/bin/e2e.test
-            cp _output/bin/kubectl workspace/bin/kubectl
+            tar xvzf $TMP_DIR/kubernetes-test-linux-amd64.tar.gz \
+              --directory workspace/bin
+              --strip-components=3 kubernetes/test/bin/ginkgo kubernetes/test/bin/e2e.test
+
       - persist_to_workspace:
           root: workspace
           paths:
@@ -54,7 +55,7 @@ jobs:
           paths:
             - docker
 
-  e2e_ipv4:
+  e2e_ptp:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
@@ -90,7 +91,7 @@ jobs:
             export KUBERNETES_CONFORMANCE_TEST='y'
             e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2
 
-  e2e_ipv6:
+  e2e_bridge:
     machine:
       enabled: true
       image: ubuntu-1604:201903-01
@@ -99,21 +100,6 @@ jobs:
       - attach_workspace:
           at: /tmp/workspace
       - checkout
-      - run: sudo sed -i 's/^\:\:1.*/::1 localhost ip6-localhost ip6-loopback/g' /etc/hosts
-      - run:
-          name: enable ipv6
-          command: |
-            cat <<'EOF' | sudo tee /etc/docker/daemon.json
-            {
-              "ipv6": true,
-              "fixed-cidr-v6": "2001:db8:1::/64"
-            }
-            EOF
-            sudo service docker restart
-      - run:
-          name: Add fake external IPv6 address
-          command: |
-            sudo ip -6 addr add 2001:4860:4860::8888 dev docker0
       - run:
           name: Install dependencies
           command: |
@@ -122,10 +108,11 @@ jobs:
       - run:
           name: Create kind cluster
           command: |
-            export KUBECONFIG="${HOME}/.kube/kind-test-config"
-            kind create cluster --image aojea/kindnode:latest --config .circleci/config-ipv6-ci.yaml --loglevel debug --wait 1m
+            KUBECONFIG="${HOME}/.kube/kind-test-config"
+            export KUBECONFIG
+            kind create cluster --image aojea/kindnode:latest --config .circleci/config-ipv4-ci.yaml --loglevel debug --wait 1m
             kind load image-archive /tmp/workspace/docker/kindnet.tar
-            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet.yaml
+            sed -i 's/aojea\/kindnetd/aojea\/kindnetd:test/' install-kindnet-bridge.yaml
             kubectl apply -f install-kindnet.yaml
             kubectl wait --timeout=90s -n kube-system --for=condition=Ready -l k8s-app=kube-dns pods
             kubectl get nodes -o wide
@@ -135,12 +122,8 @@ jobs:
           name: Run e2e tests
           no_output_timeout: 200m
           command: |
-            export KUBECONFIG="${HOME}/.kube/kind-test-config"
-            # Fake google.com
-            kubectl apply -f .circleci/fake-google-com.yaml
-            kubectl wait --timeout=60s --for condition=Ready -l run=my-google pods
-            # Run e2e tests
             # setting this env prevents ginkgo e2e from trying to run provider setup
+            export KUBECONFIG="${HOME}/.kube/kind-test-config"
             export KUBERNETES_CONFORMANCE_TEST='y'
             e2e.test --provider=skeleton --context kind-kind --ginkgo.focus "Networking.*Conformance" --num-nodes 2
 
@@ -151,12 +134,12 @@ workflows:
       - build_kind
       - build_e2e
       - build
-      - e2e_ipv4:
+      - e2e_ptp:
           requires:
             - build
             - build_e2e
             - build_kind
-      - e2e_ipv6:
+      - e2e_bridge:
           requires:
             - build
             - build_e2e
