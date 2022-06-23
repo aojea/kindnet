@@ -109,7 +109,7 @@ const cniConfigTemplateBridge = `
 	{
 		"type": "bridge",
 		"ipMasq": false,
-		"isDefaultGateway": false,
+		"isDefaultGateway": true,
 		"hairpinMode": true,
 		"ipam": {
 			"type": "host-local",
