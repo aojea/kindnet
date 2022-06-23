@@ -14,10 +14,10 @@
 
 ARG GOARCH="amd64"
 # STEP 1: Build kindnetd binary
-FROM golang:1.16 AS builder
+FROM golang:1.18 AS builder
 # golang envs
 ARG GOARCH="amd64"
-ARG CNI_VERSION="v1.0.1"
+ARG CNI_VERSION="v1.1.1"
 ARG GOOS=linux
 ENV CGO_ENABLED=0
 ENV GO111MODULE="on"
@@ -44,7 +44,7 @@ RUN echo "Installing CNI binaries ..." \
       \) \
       -delete
 # STEP 2: Build small image
-FROM k8s.gcr.io/build-image/debian-iptables:buster-v1.6.5
+FROM registry.k8s.io/build-image/debian-iptables:bullseye-v1.4.0
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /opt/cni/bin /opt/cni/bin
 CMD ["/bin/kindnetd"]
