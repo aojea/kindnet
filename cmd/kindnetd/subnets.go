@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"os"
 	"regexp"
 	"strings"
@@ -47,7 +48,7 @@ func newKubeSubnets(regex, configmap, namespace string) *kubeSubnets {
 
 func (ks *kubeSubnets) Get(clientset *kubernetes.Clientset) (string, error) {
 	cidrRegexp := regexp.MustCompile(ks.regex)
-	configMap, err := clientset.CoreV1().ConfigMaps(ks.namespace).Get(ks.configmap, metav1.GetOptions{})
+	configMap, err := clientset.CoreV1().ConfigMaps(ks.namespace).Get(context.TODO(), ks.configmap, metav1.GetOptions{})
 	if err != nil {
 		println("ERROR: " + err.Error())
 		return "", err

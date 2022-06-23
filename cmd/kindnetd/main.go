@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -147,7 +148,7 @@ func main() {
 		var nodes *corev1.NodeList
 		var err error
 		for i := 0; i < 5; i++ {
-			nodes, err = clientset.CoreV1().Nodes().List(metav1.ListOptions{})
+			nodes, err = clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 			if err == nil {
 				break
 			}
@@ -204,7 +205,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 				klog.Infof("Update node with IPs: %v\n", hostExternalIPs)
 				patchString := fmt.Sprintf(`{"metadata": {"annotations": {"kind.x-k8s.io.kindnet/addresses": "%s"}}}`, hostExternalIPs)
 				patchBytes := []byte(patchString)
-				if _, err := clientset.CoreV1().Nodes().Patch(node.Name, types.MergePatchType, patchBytes); err != nil {
+				if _, err := clientset.CoreV1().Nodes().Patch(context.TODO(), node.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
 					return fmt.Errorf("failed to patch node: %v", err)
 				}
 			}
