@@ -1,7 +1,5 @@
 # Simple CNI plugin with IPv4, IPv6 and DualStack support
 
-[![CircleCI](https://circleci.com/gh/aojea/kindnet.svg?style=svg)](https://circleci.com/gh/aojea/kindnet)
-
 The main goal of the project is to have a simple CNI plugin for Kubernetes with
 IPv4 and IPv6 support that provides the [Cluster
 Networking](https://kubernetes.io/docs/concepts/cluster-administration/networking/)
@@ -58,7 +56,7 @@ following the next steps:
 
 ```sh
 export ARCH="amd64"
-export CNI_VERSION="v1.0.1"
+export CNI_VERSION="v1.1.1"
 export CNI_TARBALL="${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz"
 export CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_TARBALL}"
 curl -sSL --retry 5 --output /tmp/cni.tgz "${CNI_URL}"
