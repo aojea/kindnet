@@ -135,13 +135,6 @@ const cniConfigTemplateBridge = `
 		"ipam": {
 			"type": "host-local",
 			"dataDir": "/run/cni-ipam-state",
-			"routes": [
-				{{$first := true}}
-				{{- range $route := .DefaultRoutes}}
-				{{if $first}}{{$first = false}}{{else}},{{end}}
-				{ "dst": "{{ $route }}" }
-				{{- end}}
-			],
 			"ranges": [
 				{{$first := true}}
 				{{- range $cidr := .PodCIDRs}}
