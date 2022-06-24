@@ -31,7 +31,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	utilsnet "k8s.io/utils/net"
 )
 
 // kindnetd is a simple networking daemon to complete kind's CNI implementation
@@ -238,7 +237,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 		// obtain the PodCIDR gateway
 		var nodeIPv4, nodeIPv6 string
 		for _, ip := range nodeIPs.List() {
-			if utilsnet.IsIPv6String(ip) {
+			if isIPv6String(ip) {
 				nodeIPv6 = ip
 			} else {
 				nodeIPv4 = ip
@@ -285,11 +284,4 @@ func internalIPs(node corev1.Node) sets.String {
 func isIPv6String(ip string) bool {
 	netIP := net.ParseIP(ip)
 	return netIP != nil && netIP.To4() == nil
-}
-
-// isIPv6CIDRString returns if cidr is IPv6.
-// This assumes cidr is a valid CIDR.
-func isIPv6CIDRString(cidr string) bool {
-	ip, _, _ := net.ParseCIDR(cidr)
-	return ip != nil && ip.To4() == nil
 }
