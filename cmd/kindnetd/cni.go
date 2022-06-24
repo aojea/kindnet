@@ -106,6 +106,9 @@ const cniConfigTemplate = `
 				{{- end}}
 			]
 		}
+		{{if .Mtu}},
+		"mtu": {{ .Mtu }}
+		{{end}}
 	},
 	{
 		"type": "portmap",
@@ -147,6 +150,9 @@ const cniConfigTemplateBridge = `
 				{{- end}}
 			]
 		}
+		{{if .Mtu}},
+		"mtu": {{ .Mtu }}
+		{{end}}
 	},
 	{
 		"type": "portmap",
