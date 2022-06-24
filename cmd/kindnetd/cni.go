@@ -66,7 +66,7 @@ const cniConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
 
 const cniConfigTemplate = `
 {
-	"cniVersion": "0.3.1",
+	"cniVersion": "0.4.0",
 	"name": "kindnet",
 	"plugins": [
 	{
@@ -103,12 +103,14 @@ const cniConfigTemplate = `
 
 const cniConfigTemplateBridge = `
 {
-	"cniVersion": "0.3.1",
+	"cniVersion": "0.4.0",
 	"name": "kindnet",
 	"plugins": [
 	{
 		"type": "bridge",
+		"bridge": "kind-br",
 		"ipMasq": false,
+		"isGateway": true,
 		"isDefaultGateway": true,
 		"hairpinMode": true,
 		"ipam": {
