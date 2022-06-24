@@ -171,7 +171,7 @@ jobs:
         # Run tests
         /usr/local/bin/ginkgo --nodes=25                \
           --focus="\[Conformance\]|\[sig-network\]"     \
-          --skip="Feature|Federation|PerformanceDNS|DualStack|Disruptive|Serial|KubeProxy|LoadBalancer|GCE|Netpol|NetworkPolicy|NodeConformance"   \
+          --skip="Feature|Federation|PerformanceDNS|DualStack|Disruptive|Serial|Slow|KubeProxy|LoadBalancer|GCE|Netpol|NetworkPolicy|NodeConformance"   \
           /usr/local/bin/e2e.test                       \
           --                                            \
           --kubeconfig=${PWD}/_artifacts/kubeconfig.conf     \
