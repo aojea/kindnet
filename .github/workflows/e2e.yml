@@ -198,12 +198,6 @@ jobs:
         name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
         path: ./_artifacts/logs
 
-    - name: Publish Test Report
-      uses: mikepenz/action-junit-report@v2
-      if: always()
-      with:
-        report_paths: './_artifacts/*.xml'
-
   publish:
     name: publish
     runs-on: ubuntu-20.04
