@@ -91,18 +91,20 @@ func main() {
 	}
 
 	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	bridge := os.Getenv("CNI_BRIDGE")
+	useBridge := len(os.Getenv("CNI_BRIDGE")) > 0
 	// disable offloading in the bridge if exists
 	disableOffload := false
-	if len(bridge) > 0 {
+	if useBridge {
 		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
 	}
 	// used to track if the cni config inputs changed and write the config
 	cniConfigWriter := &CNIConfigWriter{
 		path:   cniConfigPath,
-		bridge: len(bridge) > 0,
+		bridge: useBridge,
 		mtu:    mtu,
 	}
+	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
+		cniConfigPath, useBridge, disableOffload, mtu)
 
 	// enforce ip masquerade rules
 	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
