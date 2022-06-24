@@ -2,6 +2,10 @@ name: e2e
 
 on:
   push:
+    branches:
+      - 'main'
+    tags:
+      - 'v*'
   pull_request:
     branches: [ master ]
   workflow_dispatch:
@@ -199,3 +203,27 @@ jobs:
       if: always()
       with:
         report_paths: './_artifacts/*.xml'
+
+  publish:
+    name: publish
+    runs-on: ubuntu-20.04
+    timeout-minutes: 10
+    needs:
+      - e2e
+    steps:
+
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Publish image
+      run: |
+        docker load --input kindnetd-image.tar
+        docker tag aojea/kindnetd:test aojea/kindnetd
+        docker push aojea/kindnetd
