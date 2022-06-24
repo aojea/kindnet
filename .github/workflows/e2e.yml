@@ -118,13 +118,13 @@ jobs:
     - name: install ptp plugin
       if: ${{ matrix.cniMode == 'ptp' }}
       run: |
-        sed -i s#aojea/kindnetd#aojea/kindnetd:test# install-kindnet.yaml
+        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
 
     - name: install bridge plugin
       if: ${{ matrix.cniMode == 'bridge' }}
       run: |
-        sed -i s#aojea/kindnetd#aojea/kindnetd:test# install-kindnet-bridge.yaml
+        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet-bridge.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet-bridge.yaml
 
     - name: Get Cluster status
