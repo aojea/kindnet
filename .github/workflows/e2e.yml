@@ -52,7 +52,7 @@ jobs:
         ipFamily: ["ipv4", "ipv6", "dual"]
         cniMode: ["ptp", "bridge"]
     env:
-      JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}-${{ matrix.backend }}"
+      JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}-${{ matrix.cniMode }}"
       IP_FAMILY: ${{ matrix.ipFamily }}
     steps:
     - name: Check out code
