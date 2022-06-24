@@ -18,6 +18,7 @@ package main
 
 import (
 	"io"
+	"net"
 	"os"
 	"reflect"
 	"text/template"
@@ -25,7 +26,6 @@ import (
 	"github.com/pkg/errors"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/net"
 )
 
 /* cni config management */
@@ -34,13 +34,14 @@ import (
 type CNIConfigInputs struct {
 	PodCIDRs      []string
 	DefaultRoutes []string
+	Mtu           int
 }
 
 // ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
 func ComputeCNIConfigInputs(node corev1.Node) CNIConfigInputs {
 
 	defaultRoutes := []string{"0.0.0.0/0", "::/0"}
-	// check if is a DualStack cluster
+	// check if is a dualstack cluster
 	if len(node.Spec.PodCIDRs) > 1 {
 		return CNIConfigInputs{
 			PodCIDRs:      node.Spec.PodCIDRs,
@@ -52,13 +53,28 @@ func ComputeCNIConfigInputs(node corev1.Node) CNIConfigInputs {
 	podCIDRs := []string{node.Spec.PodCIDR}
 	// This is a single stack cluster
 	defaultRoute := defaultRoutes[:1]
-	if net.IsIPv6CIDRString(podCIDRs[0]) {
+	if isIPv6CIDRString(podCIDRs[0]) {
 		defaultRoute = defaultRoutes[1:]
 	}
 	return CNIConfigInputs{
 		PodCIDRs:      podCIDRs,
 		DefaultRoutes: defaultRoute,
 	}
+}
+
+// computeBridgeMTU finds the mtu for the eth0 interface
+// otherwise it defaults to ptp default behavior of being set by kernel
+func computeBridgeMTU() (int, error) {
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		return 0, err
+	}
+	for _, inter := range interfaces {
+		if inter.Name == "eth0" {
+			return inter.MTU, nil
+		}
+	}
+	return 0, errors.New("Found no eth0 device")
 }
 
 // cniConfigPath is where kindnetd will write the computed CNI config
@@ -147,6 +163,7 @@ const cniConfigTemplateBridge = `
 type CNIConfigWriter struct {
 	path       string
 	lastInputs CNIConfigInputs
+	mtu        int
 	bridge     bool
 }
 

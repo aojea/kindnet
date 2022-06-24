@@ -22,14 +22,12 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -57,7 +55,7 @@ const (
 	// IPv6Family sets IPFamily to ipv6
 	IPv6Family IPFamily = "ipv6"
 	// DualStackFamily sets ClusterIPFamily to DualStack
-	DualStackFamily IPFamily = "DualStack"
+	DualStackFamily IPFamily = "dualstack"
 )
 
 func main() {
@@ -84,6 +82,12 @@ func main() {
 			"hostIP(= %q) != podIP(= %q) but must be running with host network: ",
 			hostIP, podIP,
 		))
+	}
+
+	mtu, err := computeBridgeMTU()
+	klog.Infof("setting mtu %d for CNI \n", mtu)
+	if err != nil {
+		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
 	}
 
 	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
@@ -195,20 +199,6 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 			); err != nil {
 				return err
 			}
-			if ipFamily == DualStackFamily {
-				// update external IPs node annotations until #42125 is fixed
-				// TODO: https://github.com/kubernetes/kubernetes/issues/42125
-				// in KIND we know that the outer interface is eth0 to find the external ips
-				// but we can be smarter and find the interface based on the HOST_IP
-				hostExternalIPs := getHostExternalIPs(hostIP)
-				// update the node
-				klog.Infof("Update node with IPs: %v\n", hostExternalIPs)
-				patchString := fmt.Sprintf(`{"metadata": {"annotations": {"kind.x-k8s.io.kindnet/addresses": "%s"}}}`, hostExternalIPs)
-				patchBytes := []byte(patchString)
-				if _, err := clientset.CoreV1().Nodes().Patch(context.TODO(), node.Name, types.MergePatchType, patchBytes, metav1.PatchOptions{}); err != nil {
-					return fmt.Errorf("failed to patch node: %v", err)
-				}
-			}
 			// we're done handling this node
 			return nil
 		}
@@ -271,78 +261,18 @@ func internalIPs(node corev1.Node) sets.String {
 			ips.Insert(address.Address)
 		}
 	}
-	// check the node.annotations.Internal.Addresses
-	for _, address := range strings.Split(node.Annotations["kind.x-k8s.io.kindnet/addresses"], ",") {
-		ips.Insert(address)
-	}
 	return ips
 }
 
-// getHostExternalIPs return a comma separated list with the
-// node external IP addresses
-func getHostExternalIPs(ip string) string {
-	return getInterfaceIPs(interfaceByAddress(ip))
+// isIPv6String returns if ip is IPv6.
+func isIPv6String(ip string) bool {
+	netIP := net.ParseIP(ip)
+	return netIP != nil && netIP.To4() == nil
 }
 
-// interfaceByAddress return the name of the interface
-// that hosts a given IP address
-func interfaceByAddress(address string) string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		panic(err.Error())
-	}
-	for _, i := range ifaces {
-		addrs, err := i.Addrs()
-		if err != nil {
-			panic(err.Error())
-		}
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPAddr:
-				ip = v.IP
-			case *net.IPNet:
-				ip = v.IP
-			default:
-				continue
-			}
-			if ip.String() == address {
-				return i.Name
-			}
-
-		}
-	}
-	return ""
-}
-
-// getInterfaceIPs returns an array with all the global addresses
-// of the interfaces passed as a parameter
-func getInterfaceIPs(ifazName string) string {
-	var ips string
-
-	ifaz, err := net.InterfaceByName(ifazName)
-	if err != nil {
-		panic(err.Error())
-	}
-
-	addrs, err := ifaz.Addrs()
-	if err != nil {
-		panic(err.Error())
-	}
-	for _, addr := range addrs {
-		var ip net.IP
-		switch v := addr.(type) {
-		case *net.IPAddr:
-			ip = v.IP
-		case *net.IPNet:
-			ip = v.IP
-		default:
-			continue
-		}
-		if ip.IsGlobalUnicast() {
-			ips = ips + "," + ip.String()
-		}
-
-	}
-	return strings.Trim(ips, ",")
+// isIPv6CIDRString returns if cidr is IPv6.
+// This assumes cidr is a valid CIDR.
+func isIPv6CIDRString(cidr string) bool {
+	ip, _, _ := net.ParseCIDR(cidr)
+	return ip != nil && ip.To4() == nil
 }
