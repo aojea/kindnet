@@ -101,6 +101,7 @@ func main() {
 	cniConfigWriter := &CNIConfigWriter{
 		path:   cniConfigPath,
 		bridge: len(bridge) > 0,
+		mtu:    mtu,
 	}
 
 	// enforce ip masquerade rules
