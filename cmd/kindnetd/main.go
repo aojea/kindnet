@@ -92,6 +92,11 @@ func main() {
 
 	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
 	bridge := os.Getenv("CNI_BRIDGE")
+	// disable offloading in the bridge if exists
+	disableOffload := false
+	if len(bridge) > 0 {
+		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
+	}
 	// used to track if the cni config inputs changed and write the config
 	cniConfigWriter := &CNIConfigWriter{
 		path:   cniConfigPath,
@@ -176,6 +181,15 @@ func main() {
 			panic("Maximum retries reconciling node routes: " + err.Error())
 		}
 
+		// disable offload if required
+		if disableOffload {
+			err = SetChecksumOffloading("kind-br", false, false)
+			if err != nil {
+				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
+			} else {
+				disableOffload = false
+			}
+		}
 		// rate limit
 		time.Sleep(10 * time.Second)
 	}
