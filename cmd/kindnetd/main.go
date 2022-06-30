@@ -183,11 +183,11 @@ func main() {
 			panic("Maximum retries reconciling node routes: " + err.Error())
 		}
 
-		// disable offload if required
+		// disable TCP TX checksum offload if required
 		if disableOffload {
-			err = SetChecksumOffloading("kind-br", false, false)
+			err = DisableTCPTxChecksumOffload("kind-br")
 			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
+				klog.Infof("Failed to disable TCP Tx checksum offloading on interface kind-br: %v", err)
 			} else {
 				disableOffload = false
 			}

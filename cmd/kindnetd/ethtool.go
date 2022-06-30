@@ -7,67 +7,56 @@ import (
 )
 
 const (
-	siocEthtool = 0x8946 // linux/sockios.h
-
-	// #define ETHTOOL_SRXCSUM		0x00000015 /* Set RX hw csum enable (ethtool_value) */
-	ethtoolSRxCsum = 0x00000015 // linux/ethtool.h
-	// #define ETHTOOL_STXCSUM		0x00000017 /* Set TX hw csum enable (ethtool_value) */
-	ethtoolSTxCsum = 0x00000017 // linux/ethtool.h
-
-	maxIfNameSize = 16 // linux/if.h
+	SIOCETHTOOL     = 0x8946     // linux/sockios.h
+	ETHTOOL_GTXCSUM = 0x00000016 // linux/ethtool.h
+	ETHTOOL_STXCSUM = 0x00000017 // linux/ethtool.h
+	IFNAMSIZ        = 16         // linux/if.h
 )
 
 // linux/if.h 'struct ifreq'
-type ifreq struct {
-	Name [maxIfNameSize]byte
+type IFReqData struct {
+	Name [IFNAMSIZ]byte
 	Data uintptr
 }
 
 // linux/ethtool.h 'struct ethtool_value'
-type ethtoolValue struct {
+type EthtoolValue struct {
 	Cmd  uint32
 	Data uint32
 }
 
-// ethtool executes Linux ethtool syscall.
-func ethtool(iface string, cmd, val uint32) (retval uint32, err error) {
-	if len(iface)+1 > maxIfNameSize {
-		return 0, fmt.Errorf("interface name is too long")
-	}
-	socket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
-	if err != nil {
-		return 0, err
-	}
-	defer syscall.Close(socket)
-
-	// prepare ethtool request
-	value := ethtoolValue{cmd, val}
-	request := ifreq{Data: uintptr(unsafe.Pointer(&value))}
-	copy(request.Name[:], iface)
-
-	// ioctl system call
-	_, _, errno := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(socket), uintptr(siocEthtool),
-		uintptr(unsafe.Pointer(&request)))
+func ioctlEthtool(fd int, argp uintptr) error {
+	_, _, errno := syscall.RawSyscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(SIOCETHTOOL), argp)
 	if errno != 0 {
-		return 0, errno
+		return errno
 	}
-	return value.Data, nil
+	return nil
 }
 
-// SetChecksumOffloading enables/disables Rx/Tx checksum offloading
-// for the given interface.
-func SetChecksumOffloading(ifName string, rxOn, txOn bool) error {
-	var rxVal, txVal uint32
-	if rxOn {
-		rxVal = 1
+// DisableTCPTxChecksumOffload disables TX checksum offload on a specified interface
+func DisableTCPTxChecksumOffload(name string) error {
+	if len(name)+1 > IFNAMSIZ {
+		return fmt.Errorf("name too long")
 	}
-	if txOn {
-		txVal = 1
-	}
-	_, err := ethtool(ifName, ethtoolSRxCsum, rxVal)
+
+	socket, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return err
 	}
-	_, err = ethtool(ifName, ethtoolSTxCsum, txVal)
-	return err
+	defer syscall.Close(socket)
+
+	// Request current value
+	value := EthtoolValue{Cmd: ETHTOOL_GTXCSUM}
+	request := IFReqData{Data: uintptr(unsafe.Pointer(&value))} //skipcq: GSC-G103
+	copy(request.Name[:], name)
+
+	if err := ioctlEthtool(socket, uintptr(unsafe.Pointer(&request))); err != nil { //skipcq: GSC-G103
+		return err
+	}
+	if value.Data == 0 { // if already off, don't try to change
+		return nil
+	}
+
+	value = EthtoolValue{ETHTOOL_STXCSUM, 0}
+	return ioctlEthtool(socket, uintptr(unsafe.Pointer(&request))) //skipcq: GSC-G103
 }
