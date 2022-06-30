@@ -64,10 +64,14 @@ func SetChecksumOffloading(ifName string, rxOn, txOn bool) error {
 	if txOn {
 		txVal = 1
 	}
-	_, err := ethtool(ifName, ethtoolSRxCsum, rxVal)
-	if err != nil {
+	// If rx checksum isn't supported ignore and continue.
+	if _, err := ethtool(ifName, ethtoolSRxCsum, rxVal); err != nil {
+		if sErr, ok := err.(syscall.Errno); !ok || sErr != syscall.ENOTSUP {
+			return err
+		}
+	}
+	if _, err := ethtool(ifName, ethtoolSTxCsum, txVal); err != nil {
 		return err
 	}
-	_, err = ethtool(ifName, ethtoolSTxCsum, txVal)
-	return err
+	return nil
 }
