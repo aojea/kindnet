@@ -11,9 +11,11 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: "1.18.3"
-  K8S_VERSION: "v1.24.1"
+  GO_VERSION: "1.20.1"
+  K8S_VERSION: "v1.26.2"
   KIND_CLUSTER_NAME: "kindnet"
+  REGISTRY: ghcr.io
+  IMAGE_NAME: aojea/kindnetd
 
 jobs:
   build:
@@ -74,7 +76,7 @@ jobs:
         # kubectl
         curl -L https://dl.k8s.io/${{ env.K8S_VERSION }}/bin/linux/amd64/kubectl -o ${TMP_DIR}/kubectl
         # kind
-        curl -Lo ${TMP_DIR}/kind https://kind.sigs.k8s.io/dl/v0.14.0/kind-linux-amd64
+        curl -Lo ${TMP_DIR}/kind https://kind.sigs.k8s.io/dl/v0.17.0/kind-linux-amd64
         # Install
         sudo cp ${TMP_DIR}/ginkgo /usr/local/bin/ginkgo
         sudo cp ${TMP_DIR}/e2e.test /usr/local/bin/e2e.test
@@ -113,7 +115,6 @@ jobs:
         # preload kindnetd image
         docker load --input kindnetd-image.tar
         /usr/local/bin/kind load docker-image aojea/kindnetd:test --name ${{ env.KIND_CLUSTER_NAME}}
-        
 
     - name: install ptp plugin
       if: ${{ matrix.cniMode == 'ptp' }}
@@ -232,3 +233,25 @@ jobs:
         TAG=$(git describe --tags --abbrev=0)
         docker tag aojea/kindnetd:test aojea/kindnetd:$TAG
         docker push aojea/kindnetd:$TAG
+
+    - name: Log in to the Container registry
+      uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
