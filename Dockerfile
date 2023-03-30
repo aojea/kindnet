@@ -17,7 +17,7 @@ ARG GOARCH="amd64"
 FROM golang:1.20 AS builder
 # golang envs
 ARG GOARCH="amd64"
-ARG CNI_VERSION="v1.1.1"
+ARG CNI_VERSION="v1.2.0"
 ARG GOOS=linux
 ENV CGO_ENABLED=0
 ENV GO111MODULE="on"
@@ -40,7 +40,6 @@ RUN echo "Installing CNI binaries ..." \
          -o -iname ptp \
          -o -iname bridge \
          -o -iname portmap \
-         -o -iname loopback \
       \) \
       -delete
 # STEP 2: Build small image
