@@ -224,14 +224,14 @@ jobs:
     - name: Publish image
       run: |
         docker load --input kindnetd-image.tar
-        docker tag aojea/kindnetd:test aojea/kindnetd
+        docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd
         docker push aojea/kindnetd
 
     - name: Publish image for tags
       if: startsWith(github.ref, 'refs/tags/v')
       run: |
         TAG=$(git describe --tags --abbrev=0)
-        docker tag aojea/kindnetd:test aojea/kindnetd:$TAG
+        docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd:$TAG
         docker push aojea/kindnetd:$TAG
 
     - name: Log in to the Container registry
