@@ -77,10 +77,10 @@ func computeBridgeMTU() (int, error) {
 	return 0, errors.New("Found no eth0 device")
 }
 
-// cniConfigPath is where kindnetd will write the computed CNI config
-const cniConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
+// defaultCniConfigPath is where kindnetd will write the computed CNI config
+const defaultCNIConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
 
-const cniConfigTemplate = `
+const defaultCNIConfigTemplate = `
 {
 	"cniVersion": "0.4.0",
 	"name": "kindnet",
@@ -120,7 +120,7 @@ const cniConfigTemplate = `
 }
 `
 
-const cniConfigTemplateBridge = `
+const defaultCNIConfigTemplateBridge = `
 {
 	"cniVersion": "0.4.0",
 	"name": "kindnet",
@@ -160,6 +160,7 @@ const cniConfigTemplateBridge = `
 // CNIConfigWriter no-ops re-writing config with the same inputs
 // NOTE: should only be called from a single goroutine
 type CNIConfigWriter struct {
+	template   string
 	path       string
 	lastInputs CNIConfigInputs
 	mtu        int
@@ -180,13 +181,8 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 		return err
 	}
 
-	template := cniConfigTemplate
-	if c.bridge {
-		template = cniConfigTemplateBridge
-	}
-
 	// actually write the config
-	if err := writeCNIConfig(f, template, inputs); err != nil {
+	if err := writeCNIConfig(f, c.template, inputs); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return err

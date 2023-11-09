@@ -41,7 +41,8 @@ import (
 // input envs:
 // - HOST_IP: should be populated by downward API
 // - POD_IP: should be populated by downward API
-// - CNI_CONFIG_TEMPLATE: the cni .conflist template, run with {{ .PodCIDR }}
+// - CNI_CONFIG_PATH: the path where the CNI conflist will be written (optional).
+// - CNI_CONFIG_TEMPLATE: the cni .conflist template, run with {{ .PodCIDR }} (optional).
 
 // TODO: improve logging & error handling
 
@@ -96,11 +97,26 @@ func main() {
 	if useBridge {
 		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
 	}
+
+	cniConfigPath := os.Getenv("CNI_CONFIG_PATH")
+	if cniConfigPath == "" {
+		cniConfigPath = defaultCNIConfigPath
+	}
+
+	cniConfigTemplate := os.Getenv("CNI_CONFIG_TEMPLATE")
+	if cniConfigTemplate == "" {
+		cniConfigTemplate = defaultCNIConfigTemplate
+		if useBridge {
+			cniConfigTemplate = defaultCNIConfigTemplateBridge
+		}
+	}
+
 	// used to track if the cni config inputs changed and write the config
 	cniConfigWriter := &CNIConfigWriter{
-		path:   cniConfigPath,
-		bridge: useBridge,
-		mtu:    mtu,
+		template: cniConfigTemplate,
+		path:     cniConfigPath,
+		bridge:   useBridge,
+		mtu:      mtu,
 	}
 	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
 		cniConfigPath, useBridge, disableOffload, mtu)
