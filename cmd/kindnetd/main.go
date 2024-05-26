@@ -30,7 +30,11 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/google/nftables"
+
+	"github.com/aojea/kindnet/pkg/apis"
 	"github.com/aojea/kindnet/pkg/cni"
+	"github.com/aojea/kindnet/pkg/dataplane"
 	"github.com/aojea/kindnet/pkg/router"
 
 	"k8s.io/client-go/informers"
@@ -38,6 +42,7 @@ import (
 	"k8s.io/client-go/rest"
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
+	netutils "k8s.io/utils/net"
 )
 
 // kindnetd is a simple networking daemon to complete kind's CNI implementation
@@ -51,17 +56,6 @@ import (
 // - CNI_CONFIG_TEMPLATE: the cni .conflist template, run with {{ .PodCIDR }}
 
 // TODO: improve logging & error handling
-
-// IPFamily defines kindnet networking operating model
-type IPFamily int
-
-const (
-	// Family type definitions
-	AllFamily       IPFamily = unix.AF_UNSPEC
-	IPv4Family      IPFamily = unix.AF_INET
-	IPv6Family      IPFamily = unix.AF_INET6
-	DualStackFamily IPFamily = unix.AF_UNSPEC
-)
 
 var (
 	failOpen                   bool
@@ -89,7 +83,6 @@ func init() {
 }
 
 func main() {
-
 	// enable logging
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
@@ -99,7 +92,44 @@ func main() {
 		log.Printf("FLAG: --%s=%q", flag.Name, flag.Value)
 	})
 
+	// trap Ctrl+C and call cancel on the context
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Enable signal handler
+	signalCh := make(chan os.Signal, 2)
+	defer func() {
+		close(signalCh)
+		cancel()
+	}()
+	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
+
+	// obtain the host and pod ip addresses
+	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
+	klog.Infof("hostIP = %s\npodIP = %s\n", hostIP, podIP)
+	if hostIP != podIP {
+		panic(fmt.Sprintf(
+			"hostIP(= %q) != podIP(= %q) but must be running with host network: ",
+			hostIP, podIP,
+		))
+	}
+
 	hostname, err := nodeutil.GetHostname(hostnameOverride)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// create a nftables connection
+	nft, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		panic(err.Error())
+	}
+	defer nft.CloseLasting() // nolint: errcheck
+
+	// Create kindnet table if does not exist
+	klog.Infof("Creating nftables Table %v", apis.KindnetTable)
+	_ = nft.AddTable(apis.KindnetTable)
+	err = nft.Flush()
 	if err != nil {
 		panic(err.Error())
 	}
@@ -139,76 +169,18 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	klog.Infof("client to apiserver: %s", config.Host)
+
+	klog.Infof("client connecting to apiserver: %s", config.Host)
 	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
 	nodeInformer := informersFactory.Core().V1().Nodes()
+	serviceInformer := informersFactory.Core().V1().Services()
 
-	// trap Ctrl+C and call cancel on the context
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-
-	// Enable signal handler
-	signalCh := make(chan os.Signal, 2)
-	defer func() {
-		close(signalCh)
-		cancel()
-	}()
-	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
-
-	// obtain the host and pod ip addresses
-	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
-	klog.Infof("hostIP = %s\npodIP = %s\n", hostIP, podIP)
-	if hostIP != podIP {
-		panic(fmt.Sprintf(
-			"hostIP(= %q) != podIP(= %q) but must be running with host network: ",
-			hostIP, podIP,
-		))
+	// detect the cluster primary IP family
+	ipFamily := apis.IPv6Family
+	if netutils.IsIPv4String(hostIP) {
+		ipFamily = apis.IPv4Family
 	}
-
-	// enforce ip masquerade rules
-	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
-	// detect the cluster IP family based on the Cluster CIDR akka PodSubnet
-	var ipFamily IPFamily
-	switch {
-	case len(noMaskIPv4Subnets) > 0 && len(noMaskIPv6Subnets) > 0:
-		ipFamily = DualStackFamily
-	case len(noMaskIPv6Subnets) > 0:
-		ipFamily = IPv6Family
-	case len(noMaskIPv4Subnets) > 0:
-		ipFamily = IPv4Family
-	default:
-		panic("Cluster CIDR is not defined")
-	}
-	klog.Infof("kindnetd IP family: %q", ipFamily)
-
-	// create an ipMasqAgent for IPv4
-	if len(noMaskIPv4Subnets) > 0 {
-		klog.Infof("noMask IPv4 subnets: %v", noMaskIPv4Subnets)
-		masqAgentIPv4, err := NewIPMasqAgent(false, noMaskIPv4Subnets)
-		if err != nil {
-			panic(err.Error())
-		}
-		go func() {
-			if err := masqAgentIPv4.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
-			}
-		}()
-	}
-
-	// create an ipMasqAgent for IPv6
-	if len(noMaskIPv6Subnets) > 0 {
-		klog.Infof("noMask IPv6 subnets: %v", noMaskIPv6Subnets)
-		masqAgentIPv6, err := NewIPMasqAgent(true, noMaskIPv6Subnets)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		go func() {
-			if err := masqAgentIPv6.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
-			}
-		}()
-	}
+	klog.Infof("kindnetd Primary IP family: %q", ipFamily)
 
 	// CNI config controller
 	cniController := cni.New(hostname, clientset, nodeInformer, int(ipFamily))
@@ -223,6 +195,19 @@ func main() {
 	routerController := router.New(hostname, clientset, nodeInformer)
 	go func() {
 		err := routerController.Run(ctx, 5)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
+
+	// dataplane controller
+	nftController, err := dataplane.New(hostname, nft, clientset, nodeInformer, serviceInformer, ipFamily)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	go func() {
+		err := nftController.Run(ctx, 1)
 		if err != nil {
 			klog.Infof("error running router controller: %v", err)
 		}

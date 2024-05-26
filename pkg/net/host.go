@@ -10,7 +10,7 @@ import (
 
 // GetMTU returns the MTU used for the IP family
 func GetMTU(ipFamily int) (int, error) {
-	iface, err := getDefaultGwIf(ipFamily)
+	iface, err := GetDefaultGwInterface(ipFamily)
 	if err != nil {
 		return 0, err
 	}
@@ -35,7 +35,7 @@ func getInterfaceMTU(iface string) (int, error) {
 	return 0, fmt.Errorf("no %s device found", iface)
 }
 
-func getDefaultGwIf(ipFamily int) (string, error) {
+func GetDefaultGwInterface(ipFamily int) (string, error) {
 	routes, err := netlink.RouteList(nil, ipFamily)
 	if err != nil {
 		return "", err

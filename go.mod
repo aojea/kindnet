@@ -3,8 +3,7 @@ module github.com/aojea/kindnet
 go 1.22.0
 
 require (
-	github.com/coreos/go-iptables v0.7.0
-	github.com/pkg/errors v0.9.1
+	github.com/google/nftables v0.2.0
 	github.com/vishvananda/netlink v1.1.0
 	k8s.io/api v0.30.1
 	k8s.io/apimachinery v0.30.1
@@ -19,6 +18,10 @@ require (
 	github.com/google/gnostic-models v0.6.9-0.20230804172637-c7be7c783f49 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.3.0 // indirect
+	github.com/josharian/native v1.1.0 // indirect
+	github.com/mdlayher/netlink v1.7.2 // indirect
+	github.com/mdlayher/socket v0.5.0 // indirect
+	golang.org/x/sync v0.7.0 // indirect
 )
 
 require (
