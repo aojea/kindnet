@@ -38,7 +38,6 @@ RUN echo "Installing CNI binaries ..." \
     && find /opt/cni/bin -type f -not \( \
     -iname host-local \
     -o -iname ptp \
-    -o -iname bridge \
     -o -iname portmap \
     \) \
     -delete

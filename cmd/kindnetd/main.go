@@ -27,12 +27,8 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/aojea/kindnet/pkg/cni"
-	utilnet "github.com/aojea/kindnet/pkg/net"
 	"github.com/aojea/kindnet/pkg/router"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -60,7 +56,7 @@ const (
 	AllFamily       IPFamily = unix.AF_UNSPEC
 	IPv4Family      IPFamily = unix.AF_INET
 	IPv6Family      IPFamily = unix.AF_INET6
-	DualStackFamily IPFamily = 12 // AF_INET + AF_INET6
+	DualStackFamily IPFamily = unix.AF_UNSPEC
 )
 
 var (
@@ -119,18 +115,8 @@ func main() {
 	}()
 	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
 
-	go func() {
-		select {
-		case <-signalCh:
-			klog.Infof("Exiting: received signal")
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
 	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
 	nodeInformer := informersFactory.Core().V1().Nodes()
-	nodeLister := nodeInformer.Lister()
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
@@ -141,28 +127,6 @@ func main() {
 			hostIP, podIP,
 		))
 	}
-
-	mtu, err := utilnet.GetMTU(int(AllFamily))
-	klog.Infof("setting mtu %d for CNI \n", mtu)
-	if err != nil {
-		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
-	}
-
-	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	useBridge := len(os.Getenv("CNI_BRIDGE")) > 0
-	// disable offloading in the bridge if exists
-	disableOffload := false
-	if useBridge {
-		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
-	}
-	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &cni.CNIConfigWriter{
-		Path:   cni.CNIConfigPath,
-		Bridge: useBridge,
-		MTU:    mtu,
-	}
-	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
-		cni.CNIConfigPath, useBridge, disableOffload, mtu)
 
 	// enforce ip masquerade rules
 	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
@@ -209,11 +173,16 @@ func main() {
 		}()
 	}
 
-	// setup nodes reconcile function, closes over arguments
-	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
-
 	// main control loop
 	informersFactory.Start(ctx.Done())
+
+	// CNI config controller
+	go func() {
+		err := cni.New(hostname, clientset, nodeInformer, int(ipFamily)).Run(ctx, 1)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
 
 	// routes controller
 	go func() {
@@ -223,97 +192,12 @@ func main() {
 		}
 	}()
 
-	for {
-		// Gets the Nodes information from the API
-		// TODO: use a proper controller instead
-		var nodes []*corev1.Node
-		var err error
-		for i := 0; i < 5; i++ {
-			nodes, err = nodeLister.List(labels.Everything())
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to get nodes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Reached maximum retries obtaining node list: " + err.Error())
-		}
-
-		// reconcile the nodes with retries
-		for i := 0; i < 5; i++ {
-			err = reconcileNodes(nodes)
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to reconcile routes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Maximum retries reconciling node routes: " + err.Error())
-		}
-
-		// disable offload if required
-		if disableOffload {
-			err = SetChecksumOffloading("kind-br", false, false)
-			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
-			} else {
-				disableOffload = false
-			}
-		}
-
-		// rate limit
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			time.Sleep(10 * time.Second)
-		}
+	select {
+	case <-signalCh:
+		klog.Infof("Exiting: received signal")
+		cancel()
+	case <-ctx.Done():
 	}
-}
-
-// nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *cni.CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func([]*corev1.Node) error {
-	// reconciles a node
-	reconcileNode := func(node *corev1.Node) error {
-		// first get this node's IPs
-		// we don't support more than one IP address per IP family for simplification
-		nodeIPs := internalIPs(node)
-		klog.Infof("Handling node with IPs: %v\n", nodeIPs)
-		// This is our node. We don't need to add routes, but we might need to
-		// update the cni config and "annotate" our external IPs
-		if nodeIPs.Has(hostIP) {
-			klog.Info("handling current node\n")
-			// compute the current cni config inputs
-			if err := cniConfig.Write(
-				cni.ComputeCNIConfigInputs(node),
-			); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// return a reconciler for all the nodes
-	return func(nodes []*corev1.Node) error {
-		for _, node := range nodes {
-			if err := reconcileNode(node); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// internalIPs returns the internal IP address for node
-func internalIPs(node *corev1.Node) sets.Set[string] {
-	ips := sets.New[string]()
-	// check the node.Status.Addresses
-	for _, address := range node.Status.Addresses {
-		if address.Type == "InternalIP" {
-			ips.Insert(address.Address)
-		}
-	}
-	return ips
+	// Time for gracefully shutdown
+	time.Sleep(1 * time.Second)
 }
