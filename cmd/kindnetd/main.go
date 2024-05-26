@@ -93,6 +93,8 @@ func main() {
 	_ = flag.Set("logtostderr", "true")
 	flag.Parse()
 
+	klog.Infof("flags: %v", flag.Args())
+
 	hostname, err := nodeutil.GetHostname(hostnameOverride)
 	if err != nil {
 		panic(err.Error())
@@ -198,9 +200,6 @@ func main() {
 		}()
 	}
 
-	// main control loop
-	informersFactory.Start(ctx.Done())
-
 	// CNI config controller
 	go func() {
 		err := cni.New(hostname, clientset, nodeInformer, int(ipFamily)).Run(ctx, 1)
@@ -216,6 +215,9 @@ func main() {
 			klog.Infof("error running router controller: %v", err)
 		}
 	}()
+
+	// main control loop
+	informersFactory.Start(ctx.Done())
 
 	select {
 	case <-signalCh:
