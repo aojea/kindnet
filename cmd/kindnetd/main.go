@@ -22,12 +22,15 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"time"
 
+	"golang.org/x/sys/unix"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -72,6 +75,31 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+
+	// trap Ctrl+C and call cancel on the context
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Enable signal handler
+	signalCh := make(chan os.Signal, 2)
+	defer func() {
+		close(signalCh)
+		cancel()
+	}()
+	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
+
+	go func() {
+		select {
+		case <-signalCh:
+			klog.Infof("Exiting: received signal")
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
+	nodeInformer := informersFactory.Core().V1().Nodes()
+	nodeLister := nodeInformer.Lister()
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
@@ -153,13 +181,15 @@ func main() {
 	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
 
 	// main control loop
+	informersFactory.Start(ctx.Done())
+
 	for {
 		// Gets the Nodes information from the API
 		// TODO: use a proper controller instead
-		var nodes *corev1.NodeList
+		var nodes []*corev1.Node
 		var err error
 		for i := 0; i < 5; i++ {
-			nodes, err = clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+			nodes, err = nodeLister.List(labels.Everything())
 			if err == nil {
 				break
 			}
@@ -192,15 +222,21 @@ func main() {
 				disableOffload = false
 			}
 		}
+
 		// rate limit
-		time.Sleep(10 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			time.Sleep(10 * time.Second)
+		}
 	}
 }
 
 // nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func(*corev1.NodeList) error {
+func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func([]*corev1.Node) error {
 	// reconciles a node
-	reconcileNode := func(node corev1.Node) error {
+	reconcileNode := func(node *corev1.Node) error {
 		// first get this node's IPs
 		// we don't support more than one IP address per IP family for simplification
 		nodeIPs := internalIPs(node)
@@ -258,8 +294,8 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 	}
 
 	// return a reconciler for all the nodes
-	return func(nodes *corev1.NodeList) error {
-		for _, node := range nodes.Items {
+	return func(nodes []*corev1.Node) error {
+		for _, node := range nodes {
 			if err := reconcileNode(node); err != nil {
 				return err
 			}
@@ -269,7 +305,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 }
 
 // internalIPs returns the internal IP address for node
-func internalIPs(node corev1.Node) sets.String {
+func internalIPs(node *corev1.Node) sets.String {
 	ips := sets.NewString()
 	// check the node.Status.Addresses
 	for _, address := range node.Status.Addresses {
