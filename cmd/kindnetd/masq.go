@@ -61,7 +61,7 @@ func (ma *IPMasqAgent) SyncRulesForever(interval time.Duration) error {
 		if err := ma.SyncRules(); err != nil {
 			errs++
 			if errs > 3 {
-				return fmt.Errorf("Can't synchronize rules after 3 attempts: %v", err)
+				return fmt.Errorf("can't synchronize rules after 3 attempts: %v", err)
 			}
 		} else {
 			errs = 0
