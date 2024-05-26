@@ -137,14 +137,15 @@ func main() {
 	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
 	// detect the cluster IP family based on the Cluster CIDR akka PodSubnet
 	var ipFamily IPFamily
-	if len(noMaskIPv4Subnets) > 0 && len(noMaskIPv6Subnets) > 0 {
+	switch {
+	case len(noMaskIPv4Subnets) > 0 && len(noMaskIPv6Subnets) > 0:
 		ipFamily = DualStackFamily
-	} else if len(noMaskIPv6Subnets) > 0 {
+	case len(noMaskIPv6Subnets) > 0:
 		ipFamily = IPv6Family
-	} else if len(noMaskIPv4Subnets) > 0 {
+	case len(noMaskIPv4Subnets) > 0:
 		ipFamily = IPv4Family
-	} else {
-		panic(fmt.Sprint("Cluster CIDR is not defined"))
+	default:
+		panic("Cluster CIDR is not defined")
 	}
 	klog.Infof("kindnetd IP family: %q", ipFamily)
 
@@ -272,7 +273,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 
 		// obtain the PodCIDR gateway
 		var nodeIPv4, nodeIPv6 string
-		for _, ip := range nodeIPs.List() {
+		for _, ip := range nodeIPs.UnsortedList() {
 			if isIPv6String(ip) {
 				nodeIPv6 = ip
 			} else {
@@ -305,8 +306,8 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 }
 
 // internalIPs returns the internal IP address for node
-func internalIPs(node *corev1.Node) sets.String {
-	ips := sets.NewString()
+func internalIPs(node *corev1.Node) sets.Set[string] {
+	ips := sets.New[string]()
 	// check the node.Status.Addresses
 	for _, address := range node.Status.Addresses {
 		if address.Type == "InternalIP" {
