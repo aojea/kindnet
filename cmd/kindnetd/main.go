@@ -25,6 +25,8 @@ import (
 	"os/signal"
 	"time"
 
+	utilnet "github.com/aojea/kindnet/pkg/net"
+
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -49,15 +51,14 @@ import (
 // TODO: improve logging & error handling
 
 // IPFamily defines kindnet networking operating model
-type IPFamily string
+type IPFamily int
 
 const (
-	// IPv4Family sets IPFamily to ipv4
-	IPv4Family IPFamily = "ipv4"
-	// IPv6Family sets IPFamily to ipv6
-	IPv6Family IPFamily = "ipv6"
-	// DualStackFamily sets ClusterIPFamily to DualStack
-	DualStackFamily IPFamily = "dualstack"
+	// Family type definitions
+	AllFamily       IPFamily = unix.AF_UNSPEC
+	IPv4Family      IPFamily = unix.AF_INET
+	IPv6Family      IPFamily = unix.AF_INET6
+	DualStackFamily IPFamily = 12 // AF_INET + AF_INET6
 )
 
 func main() {
@@ -111,7 +112,7 @@ func main() {
 		))
 	}
 
-	mtu, err := computeBridgeMTU()
+	mtu, err := utilnet.GetMTU(int(AllFamily))
 	klog.Infof("setting mtu %d for CNI \n", mtu)
 	if err != nil {
 		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)

@@ -18,7 +18,6 @@ package main
 
 import (
 	"io"
-	"net"
 	"os"
 	"reflect"
 	"text/template"
@@ -60,21 +59,6 @@ func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
 		PodCIDRs:      podCIDRs,
 		DefaultRoutes: defaultRoute,
 	}
-}
-
-// computeBridgeMTU finds the mtu for the eth0 interface
-// otherwise it defaults to ptp default behavior of being set by kernel
-func computeBridgeMTU() (int, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return 0, err
-	}
-	for _, inter := range interfaces {
-		if inter.Name == "eth0" {
-			return inter.MTU, nil
-		}
-	}
-	return 0, errors.New("Found no eth0 device")
 }
 
 // cniConfigPath is where kindnetd will write the computed CNI config
