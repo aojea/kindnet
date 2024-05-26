@@ -104,7 +104,7 @@ func New(nodeName string, client clientset.Interface, nodeInformer coreinformers
 	mtu, err := utilnet.GetMTU(ipFamily)
 	klog.Infof("setting mtu %d for CNI \n", mtu)
 	if err != nil {
-		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
+		klog.Infof("Failed to get MTU size from the default gateway interface, using kernel default MTU size , error: %v", err)
 	}
 
 	// used to track if the cni config inputs changed and write the config
@@ -298,43 +298,6 @@ const cniConfigTemplate = `
 }
 `
 
-const cniConfigTemplateBridge = `
-{
-	"cniVersion": "0.4.0",
-	"name": "kindnet",
-	"plugins": [
-	{
-		"type": "bridge",
-		"bridge": "kind-br",
-		"ipMasq": false,
-		"isGateway": true,
-		"isDefaultGateway": true,
-		"hairpinMode": true,
-		"ipam": {
-			"type": "host-local",
-			"dataDir": "/run/cni-ipam-state",
-			"ranges": [
-				{{$first := true}}
-				{{- range $cidr := .PodCIDRs}}
-				{{if $first}}{{$first = false}}{{else}},{{end}}
-				[ { "subnet": "{{ $cidr }}" } ]
-				{{- end}}
-			]
-		}
-		{{if .Mtu}},
-		"mtu": {{ .Mtu }}
-		{{end}}
-	},
-	{
-		"type": "portmap",
-		"capabilities": {
-			"portMappings": true
-		}
-	}
-	]
-}
-`
-
 // CNIConfigWriter no-ops re-writing config with the same inputs
 // NOTE: should only be called from a single goroutine
 type CNIConfigWriter struct {
@@ -358,13 +321,8 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 		return err
 	}
 
-	template := cniConfigTemplate
-	if c.Bridge {
-		template = cniConfigTemplateBridge
-	}
-
 	// actually write the config
-	if err := writeCNIConfig(f, template, inputs); err != nil {
+	if err := writeCNIConfig(f, cniConfigTemplate, inputs); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return err
