@@ -71,3 +71,25 @@ func getDefaultGwIf(ipFamily int) (string, error) {
 	}
 	return "", fmt.Errorf("not routes found")
 }
+
+// IsLocalIP returns true if given IP belongs to the current host
+// It returns false if is not local or if is not able to detect it.
+func IsLocalIP(nodeIP net.IP) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip != nil && ip.Equal(nodeIP) {
+			return true
+		}
+	}
+	return false
+}

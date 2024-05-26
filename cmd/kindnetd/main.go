@@ -20,22 +20,23 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/aojea/kindnet/pkg/cni"
 	utilnet "github.com/aojea/kindnet/pkg/net"
-
-	"golang.org/x/sys/unix"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
+	"github.com/aojea/kindnet/pkg/router"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 )
 
@@ -62,11 +63,39 @@ const (
 	DualStackFamily IPFamily = 12 // AF_INET + AF_INET6
 )
 
+var (
+	failOpen                   bool
+	adminNetworkPolicy         bool // 	AdminNetworkPolicy is alpha so keep it feature gated behind a flag
+	baselineAdminNetworkPolicy bool // 	BaselineAdminNetworkPolicy is alpha so keep it feature gated behind a flag
+	queueID                    int
+	metricsBindAddress         string
+	hostnameOverride           string
+)
+
+func init() {
+	flag.BoolVar(&failOpen, "fail-open", false, "If set, don't drop packets if the controller is not running")
+	flag.BoolVar(&adminNetworkPolicy, "admin-network-policy", false, "If set, enable Admin Network Policy API")
+	flag.BoolVar(&baselineAdminNetworkPolicy, "baseline-admin-network-policy", false, "If set, enable Baseline Admin Network Policy API")
+	flag.IntVar(&queueID, "nfqueue-id", 100, "Number of the nfqueue used")
+	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":9080", "The IP address and port for the metrics server to serve on")
+	flag.StringVar(&hostnameOverride, "hostname-override", "", "The hostname of the node")
+
+	flag.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
+		flag.PrintDefaults()
+	}
+}
+
 func main() {
 	// enable logging
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
 	flag.Parse()
+
+	hostname, err := nodeutil.GetHostname(hostnameOverride)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
@@ -186,6 +215,14 @@ func main() {
 	// main control loop
 	informersFactory.Start(ctx.Done())
 
+	// routes controller
+	go func() {
+		err := router.New(hostname, clientset, nodeInformer).Run(ctx, 5)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
+
 	for {
 		// Gets the Nodes information from the API
 		// TODO: use a proper controller instead
@@ -254,44 +291,6 @@ func makeNodesReconciler(cniConfig *cni.CNIConfigWriter, hostIP string, ipFamily
 			); err != nil {
 				return err
 			}
-			// we're done handling this node
-			return nil
-		}
-
-		// This is another node. Add routes to the POD subnets in the other nodes
-		// don't do anything unless there is a PodCIDR
-		var podCIDRs []string
-		if ipFamily == DualStackFamily {
-			podCIDRs = node.Spec.PodCIDRs
-		} else {
-			podCIDRs = []string{node.Spec.PodCIDR}
-		}
-		if len(podCIDRs) == 0 {
-			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
-			return nil
-		}
-		klog.Infof("Node %v has CIDR %s \n", node.Name, podCIDRs)
-		podCIDRsv4, podCIDRsv6 := splitCIDRs(podCIDRs)
-
-		// obtain the PodCIDR gateway
-		var nodeIPv4, nodeIPv6 string
-		for _, ip := range nodeIPs.UnsortedList() {
-			if isIPv6String(ip) {
-				nodeIPv6 = ip
-			} else {
-				nodeIPv4 = ip
-			}
-		}
-
-		if nodeIPv4 != "" && len(podCIDRsv4) > 0 {
-			if err := syncRoute(nodeIPv4, podCIDRsv4); err != nil {
-				return err
-			}
-		}
-		if nodeIPv6 != "" && len(podCIDRsv6) > 0 {
-			if err := syncRoute(nodeIPv6, podCIDRsv6); err != nil {
-				return err
-			}
 		}
 		return nil
 	}
@@ -317,10 +316,4 @@ func internalIPs(node *corev1.Node) sets.Set[string] {
 		}
 	}
 	return ips
-}
-
-// isIPv6String returns if ip is IPv6.
-func isIPv6String(ip string) bool {
-	netIP := net.ParseIP(ip)
-	return netIP != nil && netIP.To4() == nil
 }
