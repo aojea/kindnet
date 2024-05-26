@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package cni
 
 import (
 	"io"
@@ -25,7 +25,11 @@ import (
 	"github.com/pkg/errors"
 
 	corev1 "k8s.io/api/core/v1"
+	netutils "k8s.io/utils/net"
 )
+
+// cniConfigPath is where kindnetd will write the computed CNI config
+const CNIConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
 
 /* cni config management */
 
@@ -38,7 +42,6 @@ type CNIConfigInputs struct {
 
 // ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
 func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
-
 	defaultRoutes := []string{"0.0.0.0/0", "::/0"}
 	// check if is a dualstack cluster
 	if len(node.Spec.PodCIDRs) > 1 {
@@ -52,7 +55,7 @@ func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
 	podCIDRs := []string{node.Spec.PodCIDR}
 	// This is a single stack cluster
 	defaultRoute := defaultRoutes[:1]
-	if isIPv6CIDRString(podCIDRs[0]) {
+	if netutils.IsIPv6CIDRString(podCIDRs[0]) {
 		defaultRoute = defaultRoutes[1:]
 	}
 	return CNIConfigInputs{
@@ -60,9 +63,6 @@ func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
 		DefaultRoutes: defaultRoute,
 	}
 }
-
-// cniConfigPath is where kindnetd will write the computed CNI config
-const cniConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
 
 const cniConfigTemplate = `
 {
@@ -144,10 +144,10 @@ const cniConfigTemplateBridge = `
 // CNIConfigWriter no-ops re-writing config with the same inputs
 // NOTE: should only be called from a single goroutine
 type CNIConfigWriter struct {
-	path       string
+	Path       string
 	lastInputs CNIConfigInputs
-	mtu        int
-	bridge     bool
+	MTU        int
+	Bridge     bool
 }
 
 // Write will write the config based on
@@ -159,13 +159,13 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 	// use an extension not recognized by CNI to write the contents initially
 	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
 	// then we can rename to atomically make the file appear
-	f, err := os.Create(c.path + ".temp")
+	f, err := os.Create(c.Path + ".temp")
 	if err != nil {
 		return err
 	}
 
 	template := cniConfigTemplate
-	if c.bridge {
+	if c.Bridge {
 		template = cniConfigTemplateBridge
 	}
 
@@ -179,7 +179,7 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 	_ = f.Close()
 
 	// then we can rename to the target config path
-	if err := os.Rename(f.Name(), c.path); err != nil {
+	if err := os.Rename(f.Name(), c.Path); err != nil {
 		return err
 	}
 

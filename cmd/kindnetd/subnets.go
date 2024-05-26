@@ -18,13 +18,13 @@ package main
 
 import (
 	"context"
-	"net"
 	"os"
 	"regexp"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	netutils "k8s.io/utils/net"
 )
 
 const (
@@ -106,18 +106,11 @@ func getNoMasqueradeSubnets(clientset *kubernetes.Clientset) ([]string, []string
 func splitCIDRs(cidrs []string) ([]string, []string) {
 	var v4subnets, v6subnets []string
 	for _, subnet := range cidrs {
-		if isIPv6CIDRString(subnet) {
+		if netutils.IsIPv6CIDRString(subnet) {
 			v6subnets = append(v6subnets, subnet)
 		} else {
 			v4subnets = append(v4subnets, subnet)
 		}
 	}
 	return v4subnets, v6subnets
-}
-
-// isIPv6CIDRString returns if cidr is IPv6.
-// This assumes cidr is a valid CIDR.
-func isIPv6CIDRString(cidr string) bool {
-	ip, _, _ := net.ParseCIDR(cidr)
-	return ip != nil && ip.To4() == nil
 }

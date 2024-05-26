@@ -25,6 +25,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/cni"
 	utilnet "github.com/aojea/kindnet/pkg/net"
 
 	"golang.org/x/sys/unix"
@@ -126,13 +127,13 @@ func main() {
 		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
 	}
 	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &CNIConfigWriter{
-		path:   cniConfigPath,
-		bridge: useBridge,
-		mtu:    mtu,
+	cniConfigWriter := &cni.CNIConfigWriter{
+		Path:   cni.CNIConfigPath,
+		Bridge: useBridge,
+		MTU:    mtu,
 	}
 	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
-		cniConfigPath, useBridge, disableOffload, mtu)
+		cni.CNIConfigPath, useBridge, disableOffload, mtu)
 
 	// enforce ip masquerade rules
 	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
@@ -236,7 +237,7 @@ func main() {
 }
 
 // nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func([]*corev1.Node) error {
+func makeNodesReconciler(cniConfig *cni.CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func([]*corev1.Node) error {
 	// reconciles a node
 	reconcileNode := func(node *corev1.Node) error {
 		// first get this node's IPs
@@ -249,7 +250,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 			klog.Info("handling current node\n")
 			// compute the current cni config inputs
 			if err := cniConfig.Write(
-				ComputeCNIConfigInputs(node),
+				cni.ComputeCNIConfigInputs(node),
 			); err != nil {
 				return err
 			}
