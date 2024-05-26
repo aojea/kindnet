@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -88,12 +89,15 @@ func init() {
 }
 
 func main() {
+
 	// enable logging
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
-	flag.Parse()
 
-	klog.Infof("flags: %v", flag.Args())
+	flag.Parse()
+	flag.VisitAll(func(flag *flag.Flag) {
+		log.Printf("FLAG: --%s=%q", flag.Name, flag.Value)
+	})
 
 	hostname, err := nodeutil.GetHostname(hostnameOverride)
 	if err != nil {
@@ -105,6 +109,13 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	config.UserAgent = "kindnet"
+
+	// use protobuf for better performance at scale
+	// https://kubernetes.io/docs/reference/using-api/api-concepts/#alternate-representations-of-resources
+	// npaConfig := config // shallow copy because  CRDs does not support proto
+	config.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
+	config.ContentType = "application/vnd.kubernetes.protobuf"
 
 	// override the internal apiserver endpoint to avoid
 	// waiting for kube-proxy to install the services rules.
@@ -128,7 +139,9 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	klog.Infof("connected to apiserver: %s", config.Host)
+	klog.Infof("client to apiserver: %s", config.Host)
+	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
+	nodeInformer := informersFactory.Core().V1().Nodes()
 
 	// trap Ctrl+C and call cancel on the context
 	ctx := context.Background()
@@ -141,9 +154,6 @@ func main() {
 		cancel()
 	}()
 	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
-
-	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
-	nodeInformer := informersFactory.Core().V1().Nodes()
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
@@ -201,23 +211,28 @@ func main() {
 	}
 
 	// CNI config controller
+	cniController := cni.New(hostname, clientset, nodeInformer, int(ipFamily))
 	go func() {
-		err := cni.New(hostname, clientset, nodeInformer, int(ipFamily)).Run(ctx, 1)
+		err := cniController.Run(ctx, 1)
 		if err != nil {
 			klog.Infof("error running router controller: %v", err)
 		}
 	}()
 
 	// routes controller
+	routerController := router.New(hostname, clientset, nodeInformer)
 	go func() {
-		err := router.New(hostname, clientset, nodeInformer).Run(ctx, 5)
+		err := routerController.Run(ctx, 5)
 		if err != nil {
 			klog.Infof("error running router controller: %v", err)
 		}
 	}()
 
 	// main control loop
+	klog.Infof("Starting informers")
 	informersFactory.Start(ctx.Done())
+
+	klog.Infof("Kindnetd started successfully")
 
 	select {
 	case <-signalCh:
