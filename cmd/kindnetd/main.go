@@ -18,8 +18,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -66,6 +69,7 @@ var (
 	queueID                    int
 	metricsBindAddress         string
 	hostnameOverride           string
+	controlPlaneEndpoint       string
 )
 
 func init() {
@@ -75,6 +79,7 @@ func init() {
 	flag.IntVar(&queueID, "nfqueue-id", 100, "Number of the nfqueue used")
 	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":9080", "The IP address and port for the metrics server to serve on")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "The hostname of the node")
+	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -98,10 +103,30 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+
+	// override the internal apiserver endpoint to avoid
+	// waiting for kube-proxy to install the services rules.
+	// If the endpoint is not reachable, fallback the internal endpoint
+	if controlPlaneEndpoint != "" {
+		// check that the apiserver is reachable before continue
+		// to fail fast and avoid waiting until the client operations timeout
+		var ok bool
+		for i := 0; i < 5; i++ {
+			ok = checkHTTP(controlPlaneEndpoint)
+			if ok {
+				config.Host = controlPlaneEndpoint
+				break
+			}
+			klog.Infof("apiserver not reachable, attempt %d ... retrying", i)
+			time.Sleep(time.Second * time.Duration(i))
+		}
+	}
+	// create the clientset to connect the apiserver
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err.Error())
 	}
+	klog.Infof("connected to apiserver: %s", config.Host)
 
 	// trap Ctrl+C and call cancel on the context
 	ctx := context.Background()
@@ -200,4 +225,29 @@ func main() {
 	}
 	// Time for gracefully shutdown
 	time.Sleep(1 * time.Second)
+}
+
+func checkHTTP(address string) bool {
+	klog.Infof("probe URL %s", address)
+	tr := &http.Transport{
+		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   time.Second,
+	}
+
+	resp, err := client.Get(address + "/healthz")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Infof("error draining the body response: %v", err)
+		return false
+	}
+	return true
 }
