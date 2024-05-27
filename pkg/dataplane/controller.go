@@ -111,7 +111,7 @@ func (c *Controller) enqueueNode(obj interface{}) {
 	}
 
 	// since we reconcile the whole state enqueue always the same key to collapse events
-	c.nodeQueue.Add("dummy-key")
+	c.nodeQueue.Add("dummy-key-nodes")
 }
 
 func (c *Controller) enqueueService(obj interface{}) {
@@ -125,7 +125,7 @@ func (c *Controller) enqueueService(obj interface{}) {
 		return
 	}
 	// since we reconcile the whole state enqueue always the same key to collapse events
-	c.serviceQueue.Add("dummy-key")
+	c.serviceQueue.Add("dummy-key-services")
 }
 
 func (c *Controller) Run(ctx context.Context, workers int) error {
