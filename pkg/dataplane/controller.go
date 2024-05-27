@@ -376,9 +376,10 @@ func (c *Controller) syncNodesHandler(ctx context.Context) error {
 
 	if len(podSubnetsV4) > 0 {
 		set := &nftables.Set{
-			Table:   apis.KindnetTable,
-			Name:    apis.PodRangesV4Set,
-			KeyType: nftables.TypeIPAddr,
+			Table:    apis.KindnetTable,
+			Name:     apis.PodRangesV4Set,
+			KeyType:  nftables.TypeIPAddr,
+			Interval: true,
 		}
 		if err := c.nft.AddSet(set, podSubnetsV4); err != nil {
 			return err
@@ -387,9 +388,10 @@ func (c *Controller) syncNodesHandler(ctx context.Context) error {
 
 	if len(podSubnetsV6) > 0 {
 		set := &nftables.Set{
-			Table:   apis.KindnetTable,
-			Name:    apis.PodRangesV6Set,
-			KeyType: nftables.TypeIP6Addr,
+			Table:    apis.KindnetTable,
+			Name:     apis.PodRangesV6Set,
+			KeyType:  nftables.TypeIP6Addr,
+			Interval: true,
 		}
 		if err := c.nft.AddSet(set, podSubnetsV6); err != nil {
 			return err
