@@ -168,6 +168,8 @@ func (c *Controller) syncRules(ctx context.Context) {
 		Priority: nftables.ChainPriorityNATSource,
 	})
 
+	c.nft.FlushChain(masqueradeChain)
+
 	// masquerade all traffic that is not destined to a Pod range
 	// TODO and are using the default gateway interface ???
 	// https://github.com/capnspacehook/whalewall/blob/master/create.go
