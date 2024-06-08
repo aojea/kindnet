@@ -173,6 +173,18 @@ func (c *Controller) syncRules(ctx context.Context) {
 	// masquerade all traffic that is not destined to a Pod range
 	// TODO and are using the default gateway interface ???
 	// https://github.com/capnspacehook/whalewall/blob/master/create.go
+	/*
+		nft --debug=netlink add rule inet kindnet test-postrouting ct state new  ip saddr != @service-ips-v4 masquerade
+			[ ct load state => reg 1 ]
+			[ bitwise reg 1 = ( reg 1 & 0x00000008 ) ^ 0x00000000 ]
+			[ cmp neq reg 1 0x00000000 ]
+			[ meta load nfproto => reg 1 ]
+			[ cmp eq reg 1 0x00000002 ]
+			[ payload load 4b @ network header + 12 => reg 1 ]
+			[ lookup reg 1 set service-ips-v4 0x1 ]
+			[ masq ]
+	*/
+
 	c.nft.AddRule(&nftables.Rule{
 		Table: apis.KindnetTable,
 		Chain: masqueradeChain,
@@ -221,6 +233,7 @@ func (c *Controller) syncRules(ctx context.Context) {
 			&expr.Lookup{
 				SourceRegister: 1,
 				SetName:        apis.PodRangesV4Set,
+				Invert:         true,
 			},
 			// [ masq flags 0x10 ]
 			&expr.Masq{
@@ -278,6 +291,7 @@ func (c *Controller) syncRules(ctx context.Context) {
 			&expr.Lookup{
 				SourceRegister: 1,
 				SetName:        apis.PodRangesV6Set,
+				Invert:         true,
 			},
 			// [ masq flags 0x10 ]
 			&expr.Masq{
