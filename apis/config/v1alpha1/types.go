@@ -5,7 +5,7 @@ import (
 )
 
 // +genclient
-// +kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // Configuration describes an Dapr configuration setting.
 type Configuration struct {
@@ -26,7 +26,7 @@ type ConfigurationStatus struct {
 }
 
 // +genclient
-// +kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // ConfigurationList.
 type ConfigurationList struct {

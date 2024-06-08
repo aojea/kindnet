@@ -26,6 +26,10 @@ update:
 verify:
 	hack/verify-all.sh
 
+# Generate code
+generate:
+	hack/update-codegen.sh
+
 # get image name from directory we're building
 IMAGE_NAME=kindnetd
 # docker image registry, default to upstream
@@ -41,6 +45,4 @@ image-build:
 # docker buildx build --platform=${PLATFORMS} $(OUTPUT) --progress=$(PROGRESS) -t ${IMAGE} --pull $(EXTRA_BUILD_OPT) .
 	docker build . -t ${IMAGE}
 
-# Generate code
-code-generate:
-	hack/update-codegen.sh
+
