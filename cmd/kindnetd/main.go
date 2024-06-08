@@ -18,19 +18,31 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
-	"net"
+	"io"
+	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
+	"golang.org/x/sys/unix"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/google/nftables"
+
+	"github.com/aojea/kindnet/pkg/apis"
+	"github.com/aojea/kindnet/pkg/cni"
+	"github.com/aojea/kindnet/pkg/dataplane"
+	"github.com/aojea/kindnet/pkg/router"
+
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
+	netutils "k8s.io/utils/net"
 )
 
 // kindnetd is a simple networking daemon to complete kind's CNI implementation
@@ -45,33 +57,52 @@ import (
 
 // TODO: improve logging & error handling
 
-// IPFamily defines kindnet networking operating model
-type IPFamily string
-
-const (
-	// IPv4Family sets IPFamily to ipv4
-	IPv4Family IPFamily = "ipv4"
-	// IPv6Family sets IPFamily to ipv6
-	IPv6Family IPFamily = "ipv6"
-	// DualStackFamily sets ClusterIPFamily to DualStack
-	DualStackFamily IPFamily = "dualstack"
+var (
+	failOpen                   bool
+	adminNetworkPolicy         bool // 	AdminNetworkPolicy is alpha so keep it feature gated behind a flag
+	baselineAdminNetworkPolicy bool // 	BaselineAdminNetworkPolicy is alpha so keep it feature gated behind a flag
+	queueID                    int
+	metricsBindAddress         string
+	hostnameOverride           string
+	controlPlaneEndpoint       string
 )
+
+func init() {
+	flag.BoolVar(&failOpen, "fail-open", false, "If set, don't drop packets if the controller is not running")
+	flag.BoolVar(&adminNetworkPolicy, "admin-network-policy", false, "If set, enable Admin Network Policy API")
+	flag.BoolVar(&baselineAdminNetworkPolicy, "baseline-admin-network-policy", false, "If set, enable Baseline Admin Network Policy API")
+	flag.IntVar(&queueID, "nfqueue-id", 100, "Number of the nfqueue used")
+	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":9080", "The IP address and port for the metrics server to serve on")
+	flag.StringVar(&hostnameOverride, "hostname-override", "", "The hostname of the node")
+	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
+
+	flag.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
+		flag.PrintDefaults()
+	}
+}
 
 func main() {
 	// enable logging
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
-	flag.Parse()
 
-	// create a Kubernetes client
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		panic(err.Error())
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err.Error())
-	}
+	flag.Parse()
+	flag.VisitAll(func(flag *flag.Flag) {
+		log.Printf("FLAG: --%s=%q", flag.Name, flag.Value)
+	})
+
+	// trap Ctrl+C and call cancel on the context
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+
+	// Enable signal handler
+	signalCh := make(chan os.Signal, 2)
+	defer func() {
+		close(signalCh)
+		cancel()
+	}()
+	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
@@ -83,205 +114,142 @@ func main() {
 		))
 	}
 
-	mtu, err := computeBridgeMTU()
-	klog.Infof("setting mtu %d for CNI \n", mtu)
+	hostname, err := nodeutil.GetHostname(hostnameOverride)
 	if err != nil {
-		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
+		panic(err.Error())
 	}
 
-	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	useBridge := len(os.Getenv("CNI_BRIDGE")) > 0
-	// disable offloading in the bridge if exists
-	disableOffload := false
-	if useBridge {
-		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
+	// create a nftables connection
+	nft, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		panic(err.Error())
 	}
-	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &CNIConfigWriter{
-		path:   cniConfigPath,
-		bridge: useBridge,
-		mtu:    mtu,
-	}
-	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
-		cniConfigPath, useBridge, disableOffload, mtu)
+	defer nft.CloseLasting() // nolint: errcheck
 
-	// enforce ip masquerade rules
-	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
-	// detect the cluster IP family based on the Cluster CIDR akka PodSubnet
-	var ipFamily IPFamily
-	if len(noMaskIPv4Subnets) > 0 && len(noMaskIPv6Subnets) > 0 {
-		ipFamily = DualStackFamily
-	} else if len(noMaskIPv6Subnets) > 0 {
-		ipFamily = IPv6Family
-	} else if len(noMaskIPv4Subnets) > 0 {
-		ipFamily = IPv4Family
-	} else {
-		panic(fmt.Sprint("Cluster CIDR is not defined"))
+	// Create kindnet table if does not exist
+	klog.Infof("Creating nftables Table %v", apis.KindnetTable)
+	_ = nft.AddTable(apis.KindnetTable)
+	err = nft.Flush()
+	if err != nil {
+		panic(err.Error())
 	}
-	klog.Infof("kindnetd IP family: %q", ipFamily)
 
-	// create an ipMasqAgent for IPv4
-	if len(noMaskIPv4Subnets) > 0 {
-		klog.Infof("noMask IPv4 subnets: %v", noMaskIPv4Subnets)
-		masqAgentIPv4, err := NewIPMasqAgent(false, noMaskIPv4Subnets)
-		if err != nil {
-			panic(err.Error())
-		}
-		go func() {
-			if err := masqAgentIPv4.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
+	// create a Kubernetes client
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	config.UserAgent = "kindnet"
+
+	// use protobuf for better performance at scale
+	// https://kubernetes.io/docs/reference/using-api/api-concepts/#alternate-representations-of-resources
+	// npaConfig := config // shallow copy because  CRDs does not support proto
+	config.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
+	config.ContentType = "application/vnd.kubernetes.protobuf"
+
+	// override the internal apiserver endpoint to avoid
+	// waiting for kube-proxy to install the services rules.
+	// If the endpoint is not reachable, fallback the internal endpoint
+	if controlPlaneEndpoint != "" {
+		// check that the apiserver is reachable before continue
+		// to fail fast and avoid waiting until the client operations timeout
+		var ok bool
+		for i := 0; i < 5; i++ {
+			ok = checkHTTP(controlPlaneEndpoint)
+			if ok {
+				config.Host = controlPlaneEndpoint
+				break
 			}
-		}()
-	}
-
-	// create an ipMasqAgent for IPv6
-	if len(noMaskIPv6Subnets) > 0 {
-		klog.Infof("noMask IPv6 subnets: %v", noMaskIPv6Subnets)
-		masqAgentIPv6, err := NewIPMasqAgent(true, noMaskIPv6Subnets)
-		if err != nil {
-			panic(err.Error())
+			klog.Infof("apiserver not reachable, attempt %d ... retrying", i)
+			time.Sleep(time.Second * time.Duration(i))
 		}
-
-		go func() {
-			if err := masqAgentIPv6.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
-			}
-		}()
+	}
+	// create the clientset to connect the apiserver
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
 	}
 
-	// setup nodes reconcile function, closes over arguments
-	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
+	klog.Infof("client connecting to apiserver: %s", config.Host)
+	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
+	nodeInformer := informersFactory.Core().V1().Nodes()
+	serviceInformer := informersFactory.Core().V1().Services()
+
+	// detect the cluster primary IP family
+	ipFamily := apis.IPv6Family
+	if netutils.IsIPv4String(hostIP) {
+		ipFamily = apis.IPv4Family
+	}
+	klog.Infof("kindnetd Primary IP family: %q", ipFamily)
+
+	// CNI config controller
+	cniController := cni.New(hostname, clientset, nodeInformer, int(ipFamily))
+	go func() {
+		err := cniController.Run(ctx, 1)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
+
+	// routes controller
+	routerController := router.New(hostname, clientset, nodeInformer)
+	go func() {
+		err := routerController.Run(ctx, 5)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
+
+	// dataplane controller
+	nftController, err := dataplane.New(hostname, nft, clientset, nodeInformer, serviceInformer, ipFamily)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	go func() {
+		err := nftController.Run(ctx, 1)
+		if err != nil {
+			klog.Infof("error running router controller: %v", err)
+		}
+	}()
 
 	// main control loop
-	for {
-		// Gets the Nodes information from the API
-		// TODO: use a proper controller instead
-		var nodes *corev1.NodeList
-		var err error
-		for i := 0; i < 5; i++ {
-			nodes, err = clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to get nodes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Reached maximum retries obtaining node list: " + err.Error())
-		}
+	klog.Infof("Starting informers")
+	informersFactory.Start(ctx.Done())
 
-		// reconcile the nodes with retries
-		for i := 0; i < 5; i++ {
-			err = reconcileNodes(nodes)
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to reconcile routes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Maximum retries reconciling node routes: " + err.Error())
-		}
+	klog.Infof("Kindnetd started successfully")
 
-		// disable offload if required
-		if disableOffload {
-			err = SetChecksumOffloading("kind-br", false, false)
-			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
-			} else {
-				disableOffload = false
-			}
-		}
-		// rate limit
-		time.Sleep(10 * time.Second)
+	select {
+	case <-signalCh:
+		klog.Infof("Exiting: received signal")
+		cancel()
+	case <-ctx.Done():
 	}
+	// Time for gracefully shutdown
+	time.Sleep(1 * time.Second)
 }
 
-// nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func(*corev1.NodeList) error {
-	// reconciles a node
-	reconcileNode := func(node corev1.Node) error {
-		// first get this node's IPs
-		// we don't support more than one IP address per IP family for simplification
-		nodeIPs := internalIPs(node)
-		klog.Infof("Handling node with IPs: %v\n", nodeIPs)
-		// This is our node. We don't need to add routes, but we might need to
-		// update the cni config and "annotate" our external IPs
-		if nodeIPs.Has(hostIP) {
-			klog.Info("handling current node\n")
-			// compute the current cni config inputs
-			if err := cniConfig.Write(
-				ComputeCNIConfigInputs(node),
-			); err != nil {
-				return err
-			}
-			// we're done handling this node
-			return nil
-		}
-
-		// This is another node. Add routes to the POD subnets in the other nodes
-		// don't do anything unless there is a PodCIDR
-		var podCIDRs []string
-		if ipFamily == DualStackFamily {
-			podCIDRs = node.Spec.PodCIDRs
-		} else {
-			podCIDRs = []string{node.Spec.PodCIDR}
-		}
-		if len(podCIDRs) == 0 {
-			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
-			return nil
-		}
-		klog.Infof("Node %v has CIDR %s \n", node.Name, podCIDRs)
-		podCIDRsv4, podCIDRsv6 := splitCIDRs(podCIDRs)
-
-		// obtain the PodCIDR gateway
-		var nodeIPv4, nodeIPv6 string
-		for _, ip := range nodeIPs.List() {
-			if isIPv6String(ip) {
-				nodeIPv6 = ip
-			} else {
-				nodeIPv4 = ip
-			}
-		}
-
-		if nodeIPv4 != "" && len(podCIDRsv4) > 0 {
-			if err := syncRoute(nodeIPv4, podCIDRsv4); err != nil {
-				return err
-			}
-		}
-		if nodeIPv6 != "" && len(podCIDRsv6) > 0 {
-			if err := syncRoute(nodeIPv6, podCIDRsv6); err != nil {
-				return err
-			}
-		}
-		return nil
+func checkHTTP(address string) bool {
+	klog.Infof("probe URL %s", address)
+	tr := &http.Transport{
+		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   time.Second,
 	}
 
-	// return a reconciler for all the nodes
-	return func(nodes *corev1.NodeList) error {
-		for _, node := range nodes.Items {
-			if err := reconcileNode(node); err != nil {
-				return err
-			}
-		}
-		return nil
+	resp, err := client.Get(address + "/healthz")
+	if err != nil {
+		return false
 	}
-}
+	defer resp.Body.Close()
 
-// internalIPs returns the internal IP address for node
-func internalIPs(node corev1.Node) sets.String {
-	ips := sets.NewString()
-	// check the node.Status.Addresses
-	for _, address := range node.Status.Addresses {
-		if address.Type == "InternalIP" {
-			ips.Insert(address.Address)
-		}
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Infof("error draining the body response: %v", err)
+		return false
 	}
-	return ips
-}
-
-// isIPv6String returns if ip is IPv6.
-func isIPv6String(ip string) bool {
-	netIP := net.ParseIP(ip)
-	return netIP != nil && netIP.To4() == nil
+	return true
 }
