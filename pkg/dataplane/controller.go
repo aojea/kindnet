@@ -235,6 +235,11 @@ func (c *Controller) syncRules(ctx context.Context) {
 				SetName:        apis.PodRangesV4Set,
 				Invert:         true,
 			},
+			&expr.Lookup{
+				SourceRegister: 1,
+				SetName:        apis.ServiceIPsV4Set,
+				Invert:         true,
+			},
 			// [ masq flags 0x10 ]
 			&expr.Masq{
 				FullyRandom: true,
@@ -291,6 +296,11 @@ func (c *Controller) syncRules(ctx context.Context) {
 			&expr.Lookup{
 				SourceRegister: 1,
 				SetName:        apis.PodRangesV6Set,
+				Invert:         true,
+			},
+			&expr.Lookup{
+				SourceRegister: 1,
+				SetName:        apis.ServiceIPsV6Set,
 				Invert:         true,
 			},
 			// [ masq flags 0x10 ]
