@@ -12,19 +12,45 @@ cd ${SCRIPT_ROOT}
 (
   # To support running this script from anywhere, first cd into this directory,
   # and then install with forced module mode on and fully qualified name.
+  readonly GOFLAGS="-mod=vendor"
   cd "$(dirname "${0}")"
   GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0
+  GO111MODULE=on go install k8s.io/code-generator/cmd/{defaulter-gen,client-gen,lister-gen,informer-gen,deepcopy-gen,register-gen}
 )
-
-echo "Generating configuration CRD clientset"
-"${SCRIPT_ROOT}/hack/kube_codegen.sh" all \
-  github.com/aojea/kindnet/crds/client \
-  github.com/aojea/kindnet/apis \
-  "configuration:v1alpha1" \
-  --go-header-file "${SCRIPT_ROOT}/hack/boilerplate.go.txt"
 
 echo "Generating CRD artifacts"
 controller-gen crd \
   object:headerFile="${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
   paths="${SCRIPT_ROOT}/apis/..." \
   output:crd:artifacts:config="${SCRIPT_ROOT}/crds"
+
+
+source "${SCRIPT_ROOT}/hack/kube_codegen.sh"
+
+THIS_PKG="github.com/aojea/kindnet"
+
+kube::codegen::gen_helpers \
+    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+    "${SCRIPT_ROOT}"
+
+if [[ -n "${API_KNOWN_VIOLATIONS_DIR:-}" ]]; then
+    report_filename="${API_KNOWN_VIOLATIONS_DIR}/codegen_violation_exceptions.list"
+    if [[ "${UPDATE_API_KNOWN_VIOLATIONS:-}" == "true" ]]; then
+        update_report="--update-report"
+    fi
+fi
+
+kube::codegen::gen_openapi \
+    --output-dir "${SCRIPT_ROOT}/apiserver/openapi" \
+    --output-pkg "k8s.io/${THIS_PKG}/apiserver/openapi" \
+    --report-filename "${report_filename:-"/dev/null"}" \
+    ${update_report:+"${update_report}"} \
+    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+    "${SCRIPT_ROOT}/apiserver/apis"
+
+kube::codegen::gen_client \
+    --with-watch \
+    --output-dir "${SCRIPT_ROOT}/crds" \
+    --output-pkg "${THIS_PKG}/crds" \
+    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
+    "${SCRIPT_ROOT}/apis"
