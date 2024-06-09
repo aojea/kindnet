@@ -23,6 +23,8 @@ type Configuration struct {
 
 // ConfigurationSpec is the spec for a configuration.
 type ConfigurationSpec struct {
+	// +required
+	KindnetdImage string `json:"kindnetdImage,omitempty"`
 	// +optional
 	NetworkPolicy Feature `json:"networkPolicy,omitempty"`
 	// +optional

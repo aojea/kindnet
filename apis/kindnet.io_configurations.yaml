@@ -236,6 +236,8 @@ spec:
                 required:
                 - enable
                 type: object
+              kindnetdImage:
+                type: string
               masquerade:
                 properties:
                   enable:

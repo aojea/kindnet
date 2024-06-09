@@ -2,98 +2,86 @@
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: kindnet
+  name: kindnet-controller
 rules:
   - apiGroups:
       - ""
     resources:
-      - nodes
-      - services
+      - serviceaccounts
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - "kindnet.io"
+    resources:
+      - configurations
     verbs:
       - list
       - watch
-      - patch
-  - apiGroups:
-      - ""
-    resources:
-      - configmaps
-    verbs:
       - get
 ---
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: kindnet
+  name: kindnet-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kindnet
+  name: kindnet-controller
 subjects:
   - kind: ServiceAccount
-    name: kindnet
+    name: kindnet-controller
     namespace: kube-system
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kindnet
+  name: kindnet-controller
   namespace: kube-system
 ---
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
-  name: kindnet
+  name: kindnet-controller
   namespace: kube-system
   labels:
-    tier: node
-    app: kindnet
-    k8s-app: kindnet
+    app: kindnet-controller
+    k8s-app: kindnet-controller
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      app: kindnet
+      app: kindnet-controller
   template:
     metadata:
       labels:
-        tier: node
-        app: kindnet
-        k8s-app: kindnet
+        app: kindnet-controller
+        k8s-app: kindnet-controller
     spec:
-      hostNetwork: true
       tolerations:
         - operator: Exists
           effect: NoSchedule
-      serviceAccountName: kindnet
-      initContainers:
-        - name: install-cni-bin
-          image: ghcr.io/aojea/kindnetd:v1.1.0
-          command:
-            [
-              "sh",
-              "-c",
-              "cd /opt/cni/bin; for i in * ; do cat $i > /cni/$i ; chmod +x /cni/$i ; done",
-            ]
-          volumeMounts:
-            - name: cni-bin
-              mountPath: /cni
+      serviceAccountName: kindnet-controller
       containers:
-        - name: kindnet-cni
-          image: ghcr.io/aojea/kindnetd:v1.1.0
-          env:
-            - name: HOST_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.hostIP
-            - name: POD_IP
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-          volumeMounts:
-            - name: cni-cfg
-              mountPath: /etc/cni/net.d
-            - name: lib-modules
-              mountPath: /lib/modules
-              readOnly: true
+        - name: kindnet-controller
+          image: ghcr.io/aojea/kindnet-controller:v1.1.0
           resources:
             requests:
               cpu: "100m"
@@ -101,21 +89,5 @@ spec:
             limits:
               cpu: "100m"
               memory: "50Mi"
-          securityContext:
-            privileged: false
-            capabilities:
-              add: ["NET_RAW", "NET_ADMIN"]
-      volumes:
-        - name: cni-bin
-          hostPath:
-            path: /opt/cni/bin
-            type: DirectoryOrCreate
-        - name: cni-cfg
-          hostPath:
-            path: /etc/cni/net.d
-            type: DirectoryOrCreate
-        - name: lib-modules
-          hostPath:
-            path: /lib/modules
 ---
 

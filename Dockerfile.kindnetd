@@ -43,6 +43,7 @@ RUN echo "Installing CNI binaries ..." \
     -delete
 # STEP 2: Build small image
 FROM registry.k8s.io/build-image/distroless-iptables:v0.5.2
+LABEL org.opencontainers.image.source=https://github.com/aojea/kindnet
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /opt/cni/bin /opt/cni/bin
 CMD ["/bin/kindnetd"]
