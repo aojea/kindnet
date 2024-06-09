@@ -1,0 +1,18 @@
+ARG GOARCH="amd64"
+# STEP 1: Build kindnet-controller binary
+FROM golang:1.22 AS builder
+# golang envs
+ARG GOARCH="amd64"
+ARG GOOS=linux
+ENV CGO_ENABLED=0
+ENV GO111MODULE="on"
+ENV GOPROXY=https://proxy.golang.org
+# copy in sources
+WORKDIR /src
+COPY . .
+# build
+RUN CGO_ENABLED=0 go build -o /go/bin/kindnet-controller ./cmd/kindnet-controller
+# STEP 2: Build small image
+FROM gcr.io/distroless/static-debian12
+COPY --from=builder --chown=root:root /go/bin/kindnet-controller /bin/kindnet-controller
+CMD ["/bin/kindnet-controller"]
