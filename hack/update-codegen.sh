@@ -23,13 +23,10 @@ controller-gen rbac:roleName=kindnet crd \
   paths="${SCRIPT_ROOT}/pkg/apis/..." \
   output:crd:dir="${SCRIPT_ROOT}/apis"
 
+# https://raw.githubusercontent.com/kubernetes/code-generator/release-1.30/kube_codegen.sh
 source "${SCRIPT_ROOT}/hack/kube_codegen.sh"
 
 THIS_PKG="github.com/aojea/kindnet"
-
-kube::codegen::gen_helpers \
-    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
-    "${SCRIPT_ROOT}"
 
 kube::codegen::gen_client \
     --with-watch \
