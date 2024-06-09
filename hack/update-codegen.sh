@@ -21,8 +21,8 @@ cd ${SCRIPT_ROOT}
 echo "Generating CRD artifacts"
 controller-gen crd \
   object:headerFile="${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
-  paths="${SCRIPT_ROOT}/apis/..." \
-  output:crd:artifacts:config="${SCRIPT_ROOT}/crds"
+  paths="${SCRIPT_ROOT}/pkg/apis/..." \
+  output:crd:artifacts:config="${SCRIPT_ROOT}/apis"
 
 
 source "${SCRIPT_ROOT}/hack/kube_codegen.sh"
@@ -40,17 +40,9 @@ if [[ -n "${API_KNOWN_VIOLATIONS_DIR:-}" ]]; then
     fi
 fi
 
-kube::codegen::gen_openapi \
-    --output-dir "${SCRIPT_ROOT}/apiserver/openapi" \
-    --output-pkg "k8s.io/${THIS_PKG}/apiserver/openapi" \
-    --report-filename "${report_filename:-"/dev/null"}" \
-    ${update_report:+"${update_report}"} \
-    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
-    "${SCRIPT_ROOT}/apiserver/apis"
-
 kube::codegen::gen_client \
     --with-watch \
-    --output-dir "${SCRIPT_ROOT}/crds" \
-    --output-pkg "${THIS_PKG}/crds" \
+    --output-dir "${SCRIPT_ROOT}/apis" \
+    --output-pkg "${THIS_PKG}/apis" \
     --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt" \
-    "${SCRIPT_ROOT}/apis"
+    "${SCRIPT_ROOT}/pkg/apis"
