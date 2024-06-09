@@ -20,7 +20,7 @@ test:
 lint:
 	hack/lint.sh
 
-update:
+update: generate
 	go mod tidy && go mod vendor
 
 verify:
