@@ -22,9 +22,9 @@ import (
 	"context"
 	time "time"
 
-	versioned "github.com/aojea/kindnet/apis/clientset/versioned"
-	internalinterfaces "github.com/aojea/kindnet/apis/informers/externalversions/internalinterfaces"
-	v1alpha1 "github.com/aojea/kindnet/apis/listers/config/v1alpha1"
+	versioned "github.com/aojea/kindnet/apis/generated/clientset/versioned"
+	internalinterfaces "github.com/aojea/kindnet/apis/generated/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/aojea/kindnet/apis/generated/listers/config/v1alpha1"
 	configv1alpha1 "github.com/aojea/kindnet/pkg/apis/config/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"

@@ -22,7 +22,7 @@ import (
 	"fmt"
 	"net/http"
 
-	kindnetv1alpha1 "github.com/aojea/kindnet/apis/clientset/versioned/typed/config/v1alpha1"
+	kindnetv1alpha1 "github.com/aojea/kindnet/apis/generated/clientset/versioned/typed/config/v1alpha1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"

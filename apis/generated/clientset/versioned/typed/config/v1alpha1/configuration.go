@@ -22,7 +22,7 @@ import (
 	"context"
 	"time"
 
-	scheme "github.com/aojea/kindnet/apis/clientset/versioned/scheme"
+	scheme "github.com/aojea/kindnet/apis/generated/clientset/versioned/scheme"
 	v1alpha1 "github.com/aojea/kindnet/pkg/apis/config/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"

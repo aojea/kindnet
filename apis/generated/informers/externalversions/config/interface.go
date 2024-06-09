@@ -19,8 +19,8 @@ limitations under the License.
 package config
 
 import (
-	v1alpha1 "github.com/aojea/kindnet/apis/informers/externalversions/config/v1alpha1"
-	internalinterfaces "github.com/aojea/kindnet/apis/informers/externalversions/internalinterfaces"
+	v1alpha1 "github.com/aojea/kindnet/apis/generated/informers/externalversions/config/v1alpha1"
+	internalinterfaces "github.com/aojea/kindnet/apis/generated/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to each of this group's versions.

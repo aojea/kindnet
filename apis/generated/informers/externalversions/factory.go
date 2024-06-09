@@ -23,9 +23,9 @@ import (
 	sync "sync"
 	time "time"
 
-	versioned "github.com/aojea/kindnet/apis/clientset/versioned"
-	config "github.com/aojea/kindnet/apis/informers/externalversions/config"
-	internalinterfaces "github.com/aojea/kindnet/apis/informers/externalversions/internalinterfaces"
+	versioned "github.com/aojea/kindnet/apis/generated/clientset/versioned"
+	config "github.com/aojea/kindnet/apis/generated/informers/externalversions/config"
+	internalinterfaces "github.com/aojea/kindnet/apis/generated/informers/externalversions/internalinterfaces"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"

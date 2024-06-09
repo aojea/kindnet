@@ -21,7 +21,7 @@ package v1alpha1
 import (
 	"net/http"
 
-	"github.com/aojea/kindnet/apis/clientset/versioned/scheme"
+	"github.com/aojea/kindnet/apis/generated/clientset/versioned/scheme"
 	v1alpha1 "github.com/aojea/kindnet/pkg/apis/config/v1alpha1"
 	rest "k8s.io/client-go/rest"
 )
