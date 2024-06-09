@@ -30,6 +30,8 @@ type ConfigurationSpec struct {
 	BaselineAdminNetworkPolicy Feature `json:"baselineAdminNetworkPolicy,omitempty"`
 	// +optional
 	Masquerade MasqueradeConfig `json:"masquerade,omitempty"`
+	// +optional
+	NAT64 Feature `json:"nat64,omitempty"`
 }
 
 type MasqueradeConfig struct {
