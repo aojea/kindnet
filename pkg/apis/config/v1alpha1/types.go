@@ -8,8 +8,9 @@ import (
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
+// +kubebuilder:validation:XValidation:message="Configuration must be unique",rule="self.metadata.namespace == 'kube-system' && self.metadata.name == 'kindnet'"
 
-// Configuration describes an Dapr configuration setting.
+// Configuration describes Kindnet Configuration, must be unique across the cluster.
 type Configuration struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

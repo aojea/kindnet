@@ -17,7 +17,8 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Configuration describes an Dapr configuration setting.
+        description: Configuration describes Kindnet Configuration, must be unique
+          across the cluster.
         properties:
           apiVersion:
             description: |-
@@ -612,6 +613,10 @@ spec:
                 type: array
             type: object
         type: object
+        x-kubernetes-validations:
+        - message: Configuration must be unique
+          rule: self.metadata.namespace == 'kube-system' && self.metadata.name ==
+            'kindnet'
     served: true
     storage: true
     subresources:
