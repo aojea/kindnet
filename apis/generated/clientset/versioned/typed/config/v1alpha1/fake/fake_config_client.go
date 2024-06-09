@@ -32,10 +32,6 @@ func (c *FakeKindnetV1alpha1) Configurations(namespace string) v1alpha1.Configur
 	return &FakeConfigurations{c, namespace}
 }
 
-func (c *FakeKindnetV1alpha1) ConfigurationLists(namespace string) v1alpha1.ConfigurationListInterface {
-	return &FakeConfigurationLists{c, namespace}
-}
-
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeKindnetV1alpha1) RESTClient() rest.Interface {

@@ -15,7 +15,7 @@ type Configuration struct {
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// +optional
-	Spec   ConfigurationSpec   `json:"spec,omitempty"`
+	Spec ConfigurationSpec `json:"spec,omitempty"`
 	// +optional
 	Status ConfigurationStatus `json:"status,omitempty"`
 }
@@ -23,13 +23,13 @@ type Configuration struct {
 // ConfigurationSpec is the spec for a configuration.
 type ConfigurationSpec struct {
 	// +optional
-	NetworkPolicy              Feature          `json:"networkPolicy,omitempty"`
+	NetworkPolicy Feature `json:"networkPolicy,omitempty"`
 	// +optional
-	AdminNetworkPolicy         Feature          `json:"adminNetworkPolicy,omitempty"`
+	AdminNetworkPolicy Feature `json:"adminNetworkPolicy,omitempty"`
 	// +optional
-	BaselineAdminNetworkPolicy Feature          `json:"baselineAdminNetworkPolicy,omitempty"`
+	BaselineAdminNetworkPolicy Feature `json:"baselineAdminNetworkPolicy,omitempty"`
 	// +optional
-	Masquerade                 MasqueradeConfig `json:"masquerade,omitempty"`
+	Masquerade MasqueradeConfig `json:"masquerade,omitempty"`
 }
 
 type MasqueradeConfig struct {
@@ -49,10 +49,9 @@ type ConfigurationStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,2,rep,name=conditions"`
 }
 
-// +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// ConfigurationList.
+// ConfigurationList
 type ConfigurationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

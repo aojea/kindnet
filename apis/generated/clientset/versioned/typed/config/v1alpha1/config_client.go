@@ -29,7 +29,6 @@ import (
 type KindnetV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ConfigurationsGetter
-	ConfigurationListsGetter
 }
 
 // KindnetV1alpha1Client is used to interact with features provided by the kindnet.io group.
@@ -39,10 +38,6 @@ type KindnetV1alpha1Client struct {
 
 func (c *KindnetV1alpha1Client) Configurations(namespace string) ConfigurationInterface {
 	return newConfigurations(c, namespace)
-}
-
-func (c *KindnetV1alpha1Client) ConfigurationLists(namespace string) ConfigurationListInterface {
-	return newConfigurationLists(c, namespace)
 }
 
 // NewForConfig creates a new KindnetV1alpha1Client for the given config.

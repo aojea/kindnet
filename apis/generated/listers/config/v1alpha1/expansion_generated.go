@@ -25,11 +25,3 @@ type ConfigurationListerExpansion interface{}
 // ConfigurationNamespaceListerExpansion allows custom methods to be added to
 // ConfigurationNamespaceLister.
 type ConfigurationNamespaceListerExpansion interface{}
-
-// ConfigurationListListerExpansion allows custom methods to be added to
-// ConfigurationListLister.
-type ConfigurationListListerExpansion interface{}
-
-// ConfigurationListNamespaceListerExpansion allows custom methods to be added to
-// ConfigurationListNamespaceLister.
-type ConfigurationListNamespaceListerExpansion interface{}

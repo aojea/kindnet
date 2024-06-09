@@ -26,8 +26,6 @@ import (
 type Interface interface {
 	// Configurations returns a ConfigurationInformer.
 	Configurations() ConfigurationInformer
-	// ConfigurationLists returns a ConfigurationListInformer.
-	ConfigurationLists() ConfigurationListInformer
 }
 
 type version struct {
@@ -44,9 +42,4 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // Configurations returns a ConfigurationInformer.
 func (v *version) Configurations() ConfigurationInformer {
 	return &configurationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// ConfigurationLists returns a ConfigurationListInformer.
-func (v *version) ConfigurationLists() ConfigurationListInformer {
-	return &configurationListInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
