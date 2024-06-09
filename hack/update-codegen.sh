@@ -12,10 +12,8 @@ cd ${SCRIPT_ROOT}
 (
   # To support running this script from anywhere, first cd into this directory,
   # and then install with forced module mode on and fully qualified name.
-  readonly GOFLAGS="-mod=vendor"
   cd "$(dirname "${0}")"
-  GO111MODULE=on go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0
-  # GO111MODULE=on go install k8s.io/code-generator/cmd/{defaulter-gen,client-gen,lister-gen,informer-gen,deepcopy-gen,register-gen}
+  go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.15.0
 )
 
 
