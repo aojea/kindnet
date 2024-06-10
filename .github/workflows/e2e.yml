@@ -16,7 +16,6 @@ env:
   KIND_VERSION: "v0.22.0"
   KIND_CLUSTER_NAME: "kindnet"
   REGISTRY: ghcr.io
-  IMAGE_NAME: aojea/kindnetd
 
 jobs:
   build:
@@ -34,14 +33,21 @@ jobs:
 
     - name: Build
       run: |
-        docker build -t ghcr.io/aojea/kindnetd:test -f Dockerfile .
+        docker build -t ghcr.io/aojea/kindnetd:test -f Dockerfile.kindnetd .
+        docker build -t ghcr.io/aojea/kindnet-controller:test -f Dockerfile.kindnet-controller .
         mkdir _output
         docker save ghcr.io/aojea/kindnetd:test  > _output/kindnetd-image.tar
+        docker save ghcr.io/aojea/kindnet-controller:test  > _output/kindnet-controller-image.tar
 
     - uses: actions/upload-artifact@v2
       with:
         name: test-image
         path: _output/kindnetd-image.tar
+
+    - uses: actions/upload-artifact@v2
+      with:
+        name: test-image-controller
+        path: _output/kindnet-controller-image.tar
 
   e2e:
     name: e2e
@@ -110,21 +116,31 @@ jobs:
       with:
         name: test-image
 
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image-controller
+
     - name: Install kindnetd
       run: |
         # preload kindnetd image
         docker load --input kindnetd-image.tar
         /usr/local/bin/kind load docker-image ghcr.io/aojea/kindnetd:test --name ${{ env.KIND_CLUSTER_NAME}}
+        # preload kindnet-controller image
+        docker load --input kindnet-controller-image.tar
+        /usr/local/bin/kind load docker-image ghcr.io/aojea/kindnet-controller:test --name ${{ env.KIND_CLUSTER_NAME}}
 
     - name: install ptp plugin
       run: |
-        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
+        sed -i s#aojea/kindnet-controller.*#aojea/kindnet-controller:test# install-kindnet.yaml
+        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# docs/default-configuration.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
 
     - name: Get Cluster status
       run: |
-        # wait network is ready
-        sleep 5
+        # wait kindnet-controller is ready
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l app=kindnet-controller
+        /usr/local/bin/kubectl apply -f ./docs/default-configuration.yaml
+        # wait network is ready, kube-dns pods depend on the network
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
@@ -195,6 +211,7 @@ jobs:
         path: ./_artifacts/logs
 
   publish:
+    permissions: write-all
     name: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -208,6 +225,10 @@ jobs:
       with:
         name: test-image
 
+    - uses: actions/download-artifact@v2
+      with:
+        name: test-image-controller
+
     - name: Login to Docker Hub
       uses: docker/login-action@v2
       with:
@@ -219,6 +240,9 @@ jobs:
         docker load --input kindnetd-image.tar
         docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd
         docker push aojea/kindnetd
+        docker load --input kindnet-controller-image.tar
+        docker tag ghcr.io/aojea/kindnet-controller:test aojea/kindnet-controller
+        docker push aojea/kindnet-controller
 
     - name: Publish image for tags
       if: startsWith(github.ref, 'refs/tags/v')
@@ -226,6 +250,8 @@ jobs:
         TAG=$(git describe --tags --abbrev=0)
         docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd:$TAG
         docker push aojea/kindnetd:$TAG
+        docker tag ghcr.io/aojea/kindnet-controller:test aojea/kindnet-controller:$TAG
+        docker push aojea/kindnet-controller:$TAG
 
     - name: Log in to the Container registry
       uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
@@ -234,17 +260,32 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Extract metadata (tags, labels) for Docker
+    - name: Extract metadata (tags, labels) for Docker kindnetd
       id: meta
       uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
       with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        images: ${{ env.REGISTRY }}/aojea/kindnetd
 
-    - name: Build and push Docker image
+    - name: Build and push Docker image kindnetd
       uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
       with:
         context: .
+        file: Dockerfile.kindnetd
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
+    - name: Extract metadata (tags, labels) for Docker kindnet-controller
+      id: meta2
+      uses: docker/metadata-action@98669ae865ea3cffbcbaa878cf57c20bbf1c6c38
+      with:
+        images: ${{ env.REGISTRY }}/aojea/kindnet-controller
+
+    - name: Build and push Docker image kindnet-controller
+      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+      with:
+        context: .
+        file: Dockerfile.kindnet-controller
+        push: true
+        tags: ${{ steps.meta2.outputs.tags }}
+        labels: ${{ steps.meta2.outputs.labels }}

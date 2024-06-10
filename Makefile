@@ -20,20 +20,21 @@ test:
 lint:
 	hack/lint.sh
 
-update:
+update: update-vendor generate
+
+verify:
+	hack/verify-all.sh
+
+# Generate code
+generate:
+	hack/update-codegen.sh
+
+update-vendor:
 	go mod tidy && go mod vendor
 
-# get image name from directory we're building
-IMAGE_NAME=kindnetd
-# docker image registry, default to upstream
-REGISTRY?=ghcr.io/aojea
-# tag based on date-sha
-TAG?=$(shell echo "$$(date +v%Y%m%d)-$$(git describe --always --dirty)")
-# the full image tag
-IMAGE?=$(REGISTRY)/$(IMAGE_NAME):$(TAG)
-
-# required to enable buildx
-export DOCKER_CLI_EXPERIMENTAL=enabled
 image-build:
-# docker buildx build --platform=${PLATFORMS} $(OUTPUT) --progress=$(PROGRESS) -t ${IMAGE} --pull $(EXTRA_BUILD_OPT) .
-	docker build . -t ${IMAGE}
+	hack/build-images.sh
+
+
+
+
