@@ -255,6 +255,7 @@ func newDaemonSet(image string, labels map[string]string) *appsv1.DaemonSet {
 				Spec: v1.PodSpec{
 					HostNetwork:        true,
 					ServiceAccountName: "kindnetd",
+					PriorityClassName:  "system-node-critical",
 					Tolerations: []v1.Toleration{{
 						Operator: v1.TolerationOpExists,
 						Effect:   v1.TaintEffectNoSchedule,
