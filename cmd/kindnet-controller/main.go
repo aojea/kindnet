@@ -1,12 +1,8 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	_ "embed"
 	"flag"
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -15,33 +11,31 @@ import (
 	"golang.org/x/sys/unix"
 
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	"github.com/aojea/kindnet/apis"
 	kindnetclient "github.com/aojea/kindnet/apis/generated/clientset/versioned"
 	configinformers "github.com/aojea/kindnet/apis/generated/informers/externalversions"
+	"github.com/aojea/kindnet/pkg/apis/config/v1alpha1"
 )
 
 const (
 	dsKindnetd    = "kindnetd"
 	kindnetdImage = "ghcr.io/aojea/kindnetd:v1.1.0"
 )
-
-// KindnetdInstallManifest TODO see if we can should use gocode directly
-//
-//go:embed kindnetd.yaml
-var KindnetdInstallManifest []byte
 
 func main() {
 	// enable logging
@@ -100,7 +94,6 @@ func main() {
 		podInformer := informersFactory.Core().V1().Pods()
 		nodeInformer := informersFactory.Core().V1().Nodes()
 		serviceInformer := informersFactory.Core().V1().Services()
-
 	*/
 
 	err = apiextensionsv1.AddToScheme(scheme.Scheme)
@@ -161,13 +154,15 @@ func main() {
 		klog.Fatalf("caches not synced waiting for Kindnet Configuration")
 	}
 
+	var kindnetConfig *v1alpha1.Configuration
 	err = wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
-		cr, err := configLister.Configurations("kube-system").Get("kindnet")
+		var err error
+		kindnetConfig, err = configLister.Configurations("kube-system").Get("kindnet")
 		if err != nil {
 			klog.Info("Configuration not found, retrying ...")
 			return false, nil
 		}
-		klog.Infof("starting kindnet with config:\n %+v", cr)
+		klog.Infof("starting kindnet with config:\n %+v", kindnetConfig)
 		// TODO use conditions for more complex operations
 		// if cr.Status.Conditions
 		return true, nil
@@ -176,70 +171,28 @@ func main() {
 		panic(err.Error())
 	}
 
-	multidocReader := utilyaml.NewYAMLReader(bufio.NewReader(bytes.NewReader(KindnetdInstallManifest)))
+	image := kindnetdImage
+	if kindnetConfig.Spec.KindnetdImage != "" {
+		image = kindnetConfig.Spec.KindnetdImage
+	}
+	labels := map[string]string{
+		"tier":    "node",
+		"app":     "kindnetd",
+		"k8s-app": "kindnetd",
+	}
 
-	for {
-		buf, err := multidocReader.Read()
+	ds := newDaemonSet(image, labels)
+	_, err = clientset.AppsV1().DaemonSets("kube-system").Get(ctx, ds.Name, metav1.GetOptions{})
+	// TODO check the error type
+	if err != nil {
+		_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, ds, metav1.CreateOptions{})
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			panic(err)
+			klog.Infof("error creating service account %+v : %v", ds, err)
 		}
-
-		obj, _, err := decoder.Decode(buf, nil, nil)
+	} else {
+		_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, ds, metav1.UpdateOptions{})
 		if err != nil {
-			panic(err)
-		}
-
-		// Create on Update?? we want to create or update the existing one to the new versions
-		// TODO we may check if we need some more complex logic
-		switch o := obj.(type) {
-		case *appsv1.DaemonSet:
-			o.Name = dsKindnetd
-			for _, container := range o.Spec.Template.Spec.Containers {
-				container.Image = kindnetdImage
-			}
-			_, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, o.Name, metav1.GetOptions{})
-			// TODO check the error type
-			if err != nil {
-				_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, o, metav1.CreateOptions{})
-				if err != nil {
-					klog.Infof("error creating service account %+v : %v", o, err)
-				}
-			} else {
-				_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, o, metav1.UpdateOptions{})
-				if err != nil {
-					klog.Infof("error creating service account %+v : %v", o, err)
-				}
-			}
-			/*
-				case *v1.ServiceAccount:
-					_, err := clientset.CoreV1().ServiceAccounts("kube-system").Get(ctx, o.Name, metav1.GetOptions{})
-					if err != nil {
-						_, err = clientset.CoreV1().ServiceAccounts("kube-system").Create(ctx, o, metav1.CreateOptions{})
-						if err != nil {
-							klog.Infof("error creating service account %+v : %v", o, err)
-						}
-					} else {
-						_, err = clientset.CoreV1().ServiceAccounts("kube-system").Update(ctx, o, metav1.UpdateOptions{})
-						if err != nil {
-							klog.Infof("error creating service account %+v : %v", o, err)
-						}
-					}
-				case *rbacapi.ClusterRole:
-					_, err = clientset.RbacV1().ClusterRoles().Create(ctx, o, metav1.CreateOptions{})
-					if err != nil {
-						klog.Infof("error creating service account %+v : %v", o, err)
-					}
-				case *rbacapi.ClusterRoleBinding:
-					_, err = clientset.RbacV1().ClusterRoleBindings().Create(ctx, o, metav1.CreateOptions{})
-					if err != nil {
-						klog.Infof("error creating service account %+v : %v", o, err)
-					}
-			*/
-		default:
-			klog.Infof("unknown object type %+v", obj)
+			klog.Infof("error creating service account %+v : %v", ds, err)
 		}
 	}
 
@@ -282,4 +235,79 @@ func getCRDVersions(crd *apiextensionsv1.CustomResourceDefinition) sets.Set[stri
 		result.Insert(version.Name)
 	}
 	return result
+}
+
+// TODO: add probes
+func newDaemonSet(image string, labels map[string]string) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   dsKindnetd,
+			Labels: labels,
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: v1.PodSpec{
+					HostNetwork:        true,
+					ServiceAccountName: "kindnetd",
+					Tolerations: []v1.Toleration{{
+						Operator: v1.TolerationOpExists,
+						Effect:   v1.TaintEffectNoSchedule,
+					}},
+					InitContainers: []v1.Container{
+						{
+							Name:    "install-cni-bin",
+							Image:   image,
+							Command: []string{"sh", "-c", "cd /opt/cni/bin; for i in * ; do cat $i > /cni/$i ; chmod +x /cni/$i ; done"},
+							VolumeMounts: []v1.VolumeMount{{
+								Name:      "cni-bin",
+								MountPath: "/cni",
+							}},
+						},
+					},
+					Containers: []v1.Container{
+						{
+							Name:  "kindnetd-cni",
+							Image: image,
+							VolumeMounts: []v1.VolumeMount{{
+								Name:      "cni-cfg",
+								MountPath: "/etc/cni/net.d",
+							}},
+							Resources: v1.ResourceRequirements{
+								Requests: v1.ResourceList{
+									v1.ResourceName(v1.ResourceCPU):    resource.MustParse("100m"),
+									v1.ResourceName(v1.ResourceMemory): resource.MustParse("50Mi")},
+							},
+							SecurityContext: &v1.SecurityContext{
+								Capabilities: &v1.Capabilities{
+									Add: []v1.Capability{"NET_RAW", "NET_ADMIN"},
+								},
+							},
+						},
+					},
+					SecurityContext: &v1.PodSecurityContext{},
+					Volumes: []v1.Volume{{
+						Name: "cni-bin",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/opt/cni/bin",
+								Type: ptr.To(v1.HostPathDirectoryOrCreate),
+							}},
+					}, {
+						Name: "cni-cfg",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/etc/cni/net.d",
+								Type: ptr.To(v1.HostPathDirectoryOrCreate),
+							}},
+					}},
+				},
+			},
+		},
+	}
 }
