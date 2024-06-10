@@ -95,7 +95,7 @@ func main() {
 	}
 
 	go func() {
-		healthzServer.ListenAndServe()
+		_ = healthzServer.ListenAndServe()
 	}()
 	defer healthzServer.Close()
 
