@@ -157,12 +157,15 @@ func main() {
 				_, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, newCRD, metav1.CreateOptions{})
 				if err != nil {
 					klog.Infof("unexpected error trying to create CRD: %v", err)
+					return false, nil
 				}
-				// wait until the CRD is Established
+				// wait for the condition
+				klog.Infof("CRD created successfully")
 				return false, nil
 			}
 		}
 
+		klog.Infof("CRD exists")
 		crdVersion := getCRDVersions(crd)
 		// TODO be smarter, right now simply update always
 		if !crdVersion.Equal(newCRDVersion) {
@@ -170,16 +173,18 @@ func main() {
 			newCRD.ResourceVersion = crd.ResourceVersion
 			crd, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, newCRD, metav1.UpdateOptions{})
 			if err != nil {
-				klog.Infof("unexpected error trying to create CRD: %v", err)
+				klog.Infof("unexpected error trying to update CRD: %v", err)
 				return false, nil
 			}
 		}
 
 		for _, c := range crd.Status.Conditions {
 			if c.Type == apiextensionsv1.Established && c.Status == apiextensionsv1.ConditionTrue {
+				klog.Infof("CRD condition Established")
 				return true, nil
 			}
 		}
+		klog.Infof("waiting for CRD condition to be Established: %+v", crd.Status.Conditions)
 		return false, nil
 	}); err != nil {
 		panic(err.Error())
@@ -212,7 +217,6 @@ func main() {
 				return
 			}
 			ready.Store(true)
-
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldCfg := old.(*v1alpha1.Configuration)
@@ -232,7 +236,6 @@ func main() {
 				return
 			}
 			ready.Store(true)
-
 		},
 		DeleteFunc: func(obj interface{}) {
 			err := clientset.AppsV1().DaemonSets("kube-system").Delete(ctx, dsKindnetd, metav1.DeleteOptions{})
@@ -253,7 +256,6 @@ func main() {
 		panic(err.Error())
 	}
 	ready.Store(true)
-
 	klog.Infof("kindnetd correctly started")
 
 	select {
