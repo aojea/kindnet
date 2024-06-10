@@ -4,4 +4,4 @@ metadata:
   name: kindnet
   namespace: kube-system
 spec:
-  kindnetdImage: ghcr.io/aojea/kindnet-controller:v1.1.0
+  kindnetdImage: ghcr.io/aojea/kindnetd:v1.1.0
