@@ -138,9 +138,10 @@ jobs:
 
     - name: Get Cluster status
       run: |
-        # wait network is ready
-        sleep 5
+        # wait kindnet-controller is ready
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l app=kindnet-controller
         /usr/local/bin/kubectl apply -f ./docs/default-configuration.yaml
+        # wait network is ready, kube-dns pods depend on the network
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
