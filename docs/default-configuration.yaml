@@ -1,0 +1,7 @@
+apiVersion: "kindnet.io/v1alpha1"
+kind: Configuration
+metadata:
+  name: kindnet
+  namespace: kube-system
+spec:
+  kindnetdImage: ghcr.io/aojea/kindnet-controller:v1.1.0

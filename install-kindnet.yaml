@@ -56,6 +56,54 @@ metadata:
   name: kindnet-controller
   namespace: kube-system
 ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kindnetd
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+      - services
+    verbs:
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+  - apiGroups:
+      - "kindnet.io"
+    resources:
+      - configurations
+    verbs:
+      - list
+      - watch
+      - get
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kindnetd
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kindnetd
+subjects:
+  - kind: ServiceAccount
+    name: kindnetd
+    namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kindnetd
+  namespace: kube-system
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -75,6 +123,14 @@ spec:
         app: kindnet-controller
         k8s-app: kindnet-controller
     spec:
+      hostNetwork: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
       tolerations:
         - operator: Exists
           effect: NoSchedule
@@ -90,4 +146,3 @@ spec:
               cpu: "100m"
               memory: "50Mi"
 ---
-

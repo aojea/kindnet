@@ -15,8 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
-	rbacapi "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -136,13 +134,14 @@ func main() {
 		// TODO be smarter, right now simply update always
 		if !crdVersion.Equal(newCRDVersion) {
 			klog.Infof("detected different versions between controller CRD and cluster CRD: %v", crdVersion.Difference(newCRDVersion))
+			newCRD.ResourceVersion = crd.ResourceVersion
+			crd, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, newCRD, metav1.UpdateOptions{})
+			if err != nil {
+				klog.Infof("unexpected error trying to create CRD: %v", err)
+				return false, nil
+			}
 		}
-		crd, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Update(ctx, newCRD, metav1.UpdateOptions{})
-		if err != nil {
-			klog.Infof("unexpected error trying to create CRD: %v", err)
-			return false, nil
 
-		}
 		for _, c := range crd.Status.Conditions {
 			if c.Type == apiextensionsv1.Established && c.Status == apiextensionsv1.ConditionTrue {
 				return true, nil
@@ -201,25 +200,44 @@ func main() {
 			for _, container := range o.Spec.Template.Spec.Containers {
 				container.Image = kindnetdImage
 			}
-			_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, o, metav1.UpdateOptions{})
+			_, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, o.Name, metav1.GetOptions{})
+			// TODO check the error type
 			if err != nil {
-				klog.Infof("error creating service account %+v : %v", o, err)
+				_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, o, metav1.CreateOptions{})
+				if err != nil {
+					klog.Infof("error creating service account %+v : %v", o, err)
+				}
+			} else {
+				_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, o, metav1.UpdateOptions{})
+				if err != nil {
+					klog.Infof("error creating service account %+v : %v", o, err)
+				}
 			}
-		case *v1.ServiceAccount:
-			_, err = clientset.CoreV1().ServiceAccounts("kube-system").Update(ctx, o, metav1.UpdateOptions{})
-			if err != nil {
-				klog.Infof("error creating service account %+v : %v", o, err)
-			}
-		case *rbacapi.ClusterRole:
-			_, err = clientset.RbacV1().ClusterRoles().Update(ctx, o, metav1.UpdateOptions{})
-			if err != nil {
-				klog.Infof("error creating service account %+v : %v", o, err)
-			}
-		case *rbacapi.ClusterRoleBinding:
-			_, err = clientset.RbacV1().ClusterRoleBindings().Update(ctx, o, metav1.UpdateOptions{})
-			if err != nil {
-				klog.Infof("error creating service account %+v : %v", o, err)
-			}
+			/*
+				case *v1.ServiceAccount:
+					_, err := clientset.CoreV1().ServiceAccounts("kube-system").Get(ctx, o.Name, metav1.GetOptions{})
+					if err != nil {
+						_, err = clientset.CoreV1().ServiceAccounts("kube-system").Create(ctx, o, metav1.CreateOptions{})
+						if err != nil {
+							klog.Infof("error creating service account %+v : %v", o, err)
+						}
+					} else {
+						_, err = clientset.CoreV1().ServiceAccounts("kube-system").Update(ctx, o, metav1.UpdateOptions{})
+						if err != nil {
+							klog.Infof("error creating service account %+v : %v", o, err)
+						}
+					}
+				case *rbacapi.ClusterRole:
+					_, err = clientset.RbacV1().ClusterRoles().Create(ctx, o, metav1.CreateOptions{})
+					if err != nil {
+						klog.Infof("error creating service account %+v : %v", o, err)
+					}
+				case *rbacapi.ClusterRoleBinding:
+					_, err = clientset.RbacV1().ClusterRoleBindings().Create(ctx, o, metav1.CreateOptions{})
+					if err != nil {
+						klog.Infof("error creating service account %+v : %v", o, err)
+					}
+			*/
 		default:
 			klog.Infof("unknown object type %+v", obj)
 		}

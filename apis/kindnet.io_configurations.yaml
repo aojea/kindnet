@@ -617,8 +617,7 @@ spec:
         type: object
         x-kubernetes-validations:
         - message: Configuration must be unique
-          rule: self.metadata.namespace == 'kube-system' && self.metadata.name ==
-            'kindnet'
+          rule: self.metadata.name == 'kindnet'
     served: true
     storage: true
     subresources:
