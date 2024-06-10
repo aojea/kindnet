@@ -135,12 +135,12 @@ jobs:
         sed -i s#aojea/kindnet-controller.*#aojea/kindnet-controller:test# install-kindnet.yaml
         sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# docs/default-configuration.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
-        /usr/local/bin/kubectl apply -f ./docs/default-configuration.yaml
 
     - name: Get Cluster status
       run: |
         # wait network is ready
         sleep 5
+        /usr/local/bin/kubectl apply -f ./docs/default-configuration.yaml
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
