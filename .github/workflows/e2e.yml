@@ -211,6 +211,7 @@ jobs:
         path: ./_artifacts/logs
 
   publish:
+    permissions: write-all
     name: publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
