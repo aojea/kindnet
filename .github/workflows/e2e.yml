@@ -38,7 +38,7 @@ jobs:
         docker build -t ghcr.io/aojea/kindnet-controller:test -f Dockerfile.kindnet-controller .
         mkdir _output
         docker save ghcr.io/aojea/kindnetd:test  > _output/kindnetd-image.tar
-        docker save ghcr.io/aojea/indnet-controller:test  > _output/kindnet-controller-image.tar
+        docker save ghcr.io/aojea/kindnet-controller:test  > _output/kindnet-controller-image.tar
 
     - uses: actions/upload-artifact@v2
       with:
