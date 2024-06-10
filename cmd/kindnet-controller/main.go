@@ -95,6 +95,7 @@ func main() {
 	}
 
 	go func() {
+		klog.Infof("starting health server on %s", healthzBindAddress)
 		_ = healthzServer.ListenAndServe()
 	}()
 	defer healthzServer.Close()
@@ -154,6 +155,7 @@ func main() {
 		crd, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "configurations.kindnet.io", metav1.GetOptions{})
 		if err != nil {
 			if apierrors.IsNotFound(err) {
+				klog.Info("CRD does not exist, creating it")
 				_, err = extClientset.ApiextensionsV1().CustomResourceDefinitions().Create(ctx, newCRD, metav1.CreateOptions{})
 				if err != nil {
 					klog.Infof("unexpected error trying to create CRD: %v", err)

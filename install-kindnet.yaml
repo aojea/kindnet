@@ -148,7 +148,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /healthz
-              port: 9071
+              port: 9070
             failureThreshold: 1
             periodSeconds: 5
 ---
