@@ -23,6 +23,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
@@ -145,71 +146,66 @@ func main() {
 		panic(err.Error())
 	}
 
-	crdFactory := configinformers.NewSharedInformerFactory(crdClientset, 0)
-	configInfomer := crdFactory.Kindnet().V1alpha1().Configurations()
-	configLister := configInfomer.Lister()
-	crdFactory.Start(ctx.Done())
-
-	if ok := cache.WaitForCacheSync(ctx.Done(), configInfomer.Informer().HasSynced); !ok {
-		klog.Fatalf("caches not synced waiting for Kindnet Configuration")
-	}
-
-	var kindnetConfig *v1alpha1.Configuration
-	err = wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
-		var err error
-		kindnetConfig, err = configLister.Configurations("kube-system").Get("kindnet")
-		if err != nil {
-			klog.Info("Configuration not found, retrying ...")
-			return false, nil
-		}
-		klog.Infof("starting kindnet with config:\n %+v", kindnetConfig)
-		// TODO use conditions for more complex operations
-		// if cr.Status.Conditions
-		return true, nil
-	})
-	if err != nil {
-		panic(err.Error())
-	}
-
-	image := kindnetdImage
-	if kindnetConfig.Spec.KindnetdImage != "" {
-		image = kindnetConfig.Spec.KindnetdImage
-	}
 	labels := map[string]string{
 		"tier":    "node",
 		"app":     "kindnetd",
 		"k8s-app": "kindnetd",
 	}
 
-	ds := newDaemonSet(image, labels)
-	_, err = clientset.AppsV1().DaemonSets("kube-system").Get(ctx, ds.Name, metav1.GetOptions{})
-	// TODO check the error type
-	if err != nil {
-		_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, ds, metav1.CreateOptions{})
-		if err != nil {
-			klog.Infof("error creating service account %+v : %v", ds, err)
-		}
-	} else {
-		_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, ds, metav1.UpdateOptions{})
-		if err != nil {
-			klog.Infof("error creating service account %+v : %v", ds, err)
-		}
+	crdFactory := configinformers.NewSharedInformerFactory(crdClientset, 0)
+	configInfomer := crdFactory.Kindnet().V1alpha1().Configurations()
+	_, err = configInfomer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			cfg := obj.(*v1alpha1.Configuration)
+			klog.Infof("starting kindnet with config:\n %+v", cfg)
+			image := kindnetdImage
+			if cfg.Spec.KindnetdImage != "" {
+				image = cfg.Spec.KindnetdImage
+			}
+			ds := newDaemonSet(image, labels)
+			err := retry.OnError(
+				retry.DefaultBackoff,
+				func(err error) bool { return true },
+				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
+			if err != nil {
+				klog.Infof("error trying to update daemonset: %v", err)
+			}
+		},
+		UpdateFunc: func(old, new interface{}) {
+			oldCfg := old.(*v1alpha1.Configuration)
+			newCfg := new.(*v1alpha1.Configuration)
+			if oldCfg.Spec.KindnetdImage == newCfg.Spec.KindnetdImage {
+				return
+			}
+			klog.Infof("updating kindnet with new image:\n %s", newCfg.Spec.KindnetdImage)
+			ds := newDaemonSet(newCfg.Spec.KindnetdImage, labels)
+			err := retry.OnError(
+				retry.DefaultBackoff,
+				func(err error) bool { return true },
+				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
+			if err != nil {
+				klog.Infof("error trying to update daemonset: %v", err)
+			}
+
+		},
+		DeleteFunc: func(obj interface{}) {
+			err := clientset.AppsV1().DaemonSets("kube-system").Delete(ctx, dsKindnetd, metav1.DeleteOptions{})
+			if err != nil {
+				klog.Infof("error trying to delete kindnetd daemonset: %v", err)
+			}
+		},
+	})
+
+	crdFactory.Start(ctx.Done())
+
+	if ok := cache.WaitForCacheSync(ctx.Done(), configInfomer.Informer().HasSynced); !ok {
+		klog.Fatalf("caches not synced waiting for Kindnet Configuration")
 	}
 
-	// wait until the daemonset has finished
-	err = wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
-		ds, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, dsKindnetd, metav1.GetOptions{})
-		if err != nil {
-			klog.Infof("error trying to get kindnetd daemonset: %v", err)
-			return false, nil
-		}
-		desired, scheduled, ready := ds.Status.DesiredNumberScheduled, ds.Status.CurrentNumberScheduled, ds.Status.NumberReady
-		if desired != scheduled && desired != ready {
-			klog.Infof("error in daemon status. DesiredScheduled: %d, CurrentScheduled: %d, Ready: %d", desired, scheduled, ready)
-			return false, nil
-		}
-		return true, nil
-	})
+	err = waitForDaemonset(ctx, clientset)
+	if err != nil {
+		panic(err.Error())
+	}
 
 	klog.Infof("kindnetd correctly started")
 
@@ -311,4 +307,42 @@ func newDaemonSet(image string, labels map[string]string) *appsv1.DaemonSet {
 			},
 		},
 	}
+}
+
+// createOrUpdateDaemonset creates the Daemonset if it does not exist, otherwise update it
+func createOrUpdateDaemonset(ctx context.Context, clientset kubernetes.Interface, ds *appsv1.DaemonSet) error {
+	ds1, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, ds.Name, metav1.GetOptions{})
+	// TODO check the error type
+	if err != nil {
+		_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, ds, metav1.CreateOptions{})
+		if err != nil {
+			klog.Infof("error creating service account %+v : %v", ds, err)
+		}
+		return err
+	}
+
+	ds.ResourceVersion = ds1.ResourceVersion
+	_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, ds, metav1.UpdateOptions{})
+	if err != nil {
+		klog.Infof("error creating service account %+v : %v", ds, err)
+	}
+	return err
+}
+
+func waitForDaemonset(ctx context.Context, clientset kubernetes.Interface) error {
+	// wait until the daemonset has finished
+	err := wait.PollUntilContextCancel(ctx, 3*time.Second, true, func(ctx context.Context) (bool, error) {
+		ds, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, dsKindnetd, metav1.GetOptions{})
+		if err != nil {
+			klog.Infof("error trying to get kindnetd daemonset: %v", err)
+			return false, nil
+		}
+		desired, scheduled, ready := ds.Status.DesiredNumberScheduled, ds.Status.CurrentNumberScheduled, ds.Status.NumberReady
+		if desired != scheduled && desired != ready {
+			klog.Infof("error in daemon status. DesiredScheduled: %d, CurrentScheduled: %d, Ready: %d", desired, scheduled, ready)
+			return false, nil
+		}
+		return true, nil
+	})
+	return err
 }
