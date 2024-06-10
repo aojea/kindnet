@@ -215,10 +215,8 @@ func main() {
 				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
 			if err != nil {
 				klog.Infof("error trying to update daemonset: %v", err)
-				ready.Store(false)
 				return
 			}
-			ready.Store(true)
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldCfg := old.(*v1alpha1.Configuration)
@@ -234,10 +232,8 @@ func main() {
 				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
 			if err != nil {
 				klog.Infof("error trying to update daemonset: %v", err)
-				ready.Store(false)
 				return
 			}
-			ready.Store(true)
 		},
 		DeleteFunc: func(obj interface{}) {
 			err := clientset.AppsV1().DaemonSets("kube-system").Delete(ctx, dsKindnetd, metav1.DeleteOptions{})
@@ -252,13 +248,14 @@ func main() {
 	if ok := cache.WaitForCacheSync(ctx.Done(), configInfomer.Informer().HasSynced); !ok {
 		klog.Fatalf("caches not synced waiting for Kindnet Configuration")
 	}
+	klog.Infof("kindnet-controller correctly started")
+	ready.Store(true)
 
 	err = waitForDaemonset(ctx, clientset)
 	if err != nil {
 		panic(err.Error())
 	}
-	ready.Store(true)
-	klog.Infof("kindnetd correctly started")
+	klog.Infof("kindnetd daemonset correctly started")
 
 	select {
 	case <-signalCh:
