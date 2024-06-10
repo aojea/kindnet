@@ -17,20 +17,33 @@ This repo is kept for new features development and for using it on "real" cluste
 
 ## Kindnet components
 
+A `kindnet-controller` that allows to configure dynamically the agents using the
+configuration CR:
+
+```yaml
+apiVersion: "kindnet.io/v1alpha1"
+kind: Configuration
+metadata:
+  name: kindnet
+  namespace: kube-system
+spec:
+  kindnetdImage: ghcr.io/aojea/kindnetd:v1.1.0
+```
+
+A daemon named `kindnetd` with the following features:
+
+* `CNI config`: configures the CNI plugin dropping the file `/etc/cni/net.d/10-kindnet.conflist`
+* `routing`: install routes on the to the POD subnets in the other nodes
+* `ip-masq`: non masquerade traffic that is directed to PODs
+
 It uses the following [standard CNI
-plugins](https://github.com/containernetworking/plugins)
+plugins](https://github.com/containernetworking/plugins) on the nodes:
 
 * `ptp`: creates a veth pair and adds the host and the container to it.
 * `host-local`: maintains a local database of allocated IPs. It uses the
   `ipRanges` capability to provide dynamic configuration for the Pods subnets.
 * `portmap`: An iptables-based portmapping plugin. Maps ports from the host's
   address space to the container.
-
-And a daemon named `kindnetd` with the following features:
-
-* `CNI config`: configures the CNI plugin dropping the file `/etc/cni/net.d/10-kindnet.conflist`
-* `routing`: install routes on the to the POD subnets in the other nodes
-* `ip-masq`: non masquerade traffic that is directed to PODs 
 
 ## Installation
 
@@ -39,17 +52,21 @@ Kindnet can be installed on your cluster using the manifest [install-kindnet.yam
 `kubectl create -f
 https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml`
 
+Once installed apply the desired configuration:
 
-Kindnet installation manifest has an init container that drop the CNI binaries in the folder `/opt/cni/bin/`, however, you can install them directly supressing the init container in the manifest and
-following the next steps:
+`kubectl create -f https://raw.githubusercontent.com/aojea/kindnet/master/docs/default-configuration.yaml`
 
-```sh
-export ARCH="amd64"
-export CNI_VERSION="v1.1.1"
-export CNI_TARBALL="${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz"
-export CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_TARBALL}"
-curl -sSL --retry 5 --output /tmp/cni.tgz "${CNI_URL}"
-mkdir -p /opt/cni/bin
-tar -C /opt/cni/bin -xzf /tmp/cni.tgz
-rm -rf /tmp/cni.tgz
-```
+
+## Configuration
+
+TODO https://github.com/aojea/kindnet/issues/23
+
+- [ ] NAT64
+- [ ] Tunnel
+- [ ] IPSec
+- [ ] Network Policies
+- [ ] Packet tracing
+- [ ] DNS caching
+- [ ] Multiple network interfaces
+
+
