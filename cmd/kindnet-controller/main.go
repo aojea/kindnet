@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -38,7 +41,23 @@ const (
 	kindnetdImage = "ghcr.io/aojea/kindnetd:v1.1.0"
 )
 
+var (
+	healthzBindAddress string
+	metricsBindAddress string
+)
+
+func init() {
+	flag.StringVar(&healthzBindAddress, "healthz-bind-address", ":9070", "The IP address and port for the healthz server")
+	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":9080", "The IP address and port to serve the metrics")
+
+	flag.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: kindnet-controller [options]\n\n")
+		flag.PrintDefaults()
+	}
+}
+
 func main() {
+	ready := atomic.Bool{}
 	// enable logging
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
@@ -59,6 +78,26 @@ func main() {
 		cancel()
 	}()
 	signal.Notify(signalCh, os.Interrupt, unix.SIGINT)
+
+	// create healthz server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(rw http.ResponseWriter, req *http.Request) {
+		if ready.Load() {
+			rw.WriteHeader(http.StatusOK)
+		} else {
+			http.Error(rw, "not ready", http.StatusInternalServerError)
+		}
+	})
+
+	healthzServer := &http.Server{
+		Addr:    healthzBindAddress,
+		Handler: mux,
+	}
+
+	go func() {
+		healthzServer.ListenAndServe()
+	}()
+	defer healthzServer.Close()
 
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
@@ -169,7 +208,11 @@ func main() {
 				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
 			if err != nil {
 				klog.Infof("error trying to update daemonset: %v", err)
+				ready.Store(false)
+				return
 			}
+			ready.Store(true)
+
 		},
 		UpdateFunc: func(old, new interface{}) {
 			oldCfg := old.(*v1alpha1.Configuration)
@@ -185,7 +228,10 @@ func main() {
 				func() error { return createOrUpdateDaemonset(ctx, clientset, ds) })
 			if err != nil {
 				klog.Infof("error trying to update daemonset: %v", err)
+				ready.Store(false)
+				return
 			}
+			ready.Store(true)
 
 		},
 		DeleteFunc: func(obj interface{}) {
@@ -206,6 +252,7 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+	ready.Store(true)
 
 	klog.Infof("kindnetd correctly started")
 
@@ -314,9 +361,13 @@ func createOrUpdateDaemonset(ctx context.Context, clientset kubernetes.Interface
 	ds1, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, ds.Name, metav1.GetOptions{})
 	// TODO check the error type
 	if err != nil {
-		_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, ds, metav1.CreateOptions{})
-		if err != nil {
-			klog.Infof("error creating service account %+v : %v", ds, err)
+		if apierrors.IsNotFound(err) {
+			_, err = clientset.AppsV1().DaemonSets("kube-system").Create(ctx, ds, metav1.CreateOptions{})
+			if err != nil {
+				klog.Infof("error creating service account %+v : %v", ds, err)
+				return err
+			}
+			return nil
 		}
 		return err
 	}
@@ -325,8 +376,9 @@ func createOrUpdateDaemonset(ctx context.Context, clientset kubernetes.Interface
 	_, err = clientset.AppsV1().DaemonSets("kube-system").Update(ctx, ds, metav1.UpdateOptions{})
 	if err != nil {
 		klog.Infof("error creating service account %+v : %v", ds, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func waitForDaemonset(ctx context.Context, clientset kubernetes.Interface) error {

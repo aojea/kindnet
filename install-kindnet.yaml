@@ -145,4 +145,10 @@ spec:
             limits:
               cpu: "100m"
               memory: "50Mi"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9071
+            failureThreshold: 1
+            periodSeconds: 5
 ---
