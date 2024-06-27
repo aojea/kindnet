@@ -209,7 +209,7 @@ jobs:
     name: publish
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
-    timeout-minutes: 10
+    timeout-minutes: 100
     needs:
       - e2e
     steps:
