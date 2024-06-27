@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - 'master'
+      - 'main'
     tags:
       - 'v*'
   pull_request:
-    branches: [ master ]
+    branches:
+      - 'master'
+      - 'main'
   workflow_dispatch:
 
 env:
@@ -205,6 +208,7 @@ jobs:
   publish:
     name: publish
     runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     timeout-minutes: 10
     needs:
       - e2e
@@ -212,35 +216,11 @@ jobs:
     - name: Check out code
       uses: actions/checkout@v2
 
-    - uses: actions/download-artifact@v2
-      with:
-        name: test-image
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v2
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Publish image
-      run: |
-        docker load --input kindnetd-image.tar
-        docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd
-        docker push aojea/kindnetd
-
-    - name: Publish image for tags
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        TAG=$(git describe --tags --abbrev=0)
-        docker tag ghcr.io/aojea/kindnetd:test aojea/kindnetd:$TAG
-        docker push aojea/kindnetd:$TAG
-
-    - name: Log in to the Container registry
-      uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
     - name: Extract metadata (tags, labels) for Docker
       id: meta
@@ -248,11 +228,33 @@ jobs:
       with:
         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-    - name: Build and push Docker image
-      uses: docker/build-push-action@ad44023a93711e3deb337508980b4b5e9bcdc5dc
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
       with:
-        context: .
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Publish image for tags
+      uses: docker/build-push-action@v6
+      with:
+        platforms: linux/amd64,linux/arm64
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
 
+    - name: Log in to the Container registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
