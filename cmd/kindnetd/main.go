@@ -65,12 +65,21 @@ func main() {
 	klog.InitFlags(nil)
 	_ = flag.Set("logtostderr", "true")
 	flag.Parse()
-
+	flag.VisitAll(func(flag *flag.Flag) {
+		klog.Infof("FLAG: --%s=%q", flag.Name, flag.Value)
+	})
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		panic(err.Error())
 	}
+
+	config.UserAgent = "kindnet"
+	// use protobuf for better performance at scale
+	// https://kubernetes.io/docs/reference/using-api/api-concepts/#alternate-representations-of-resources
+	config.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
+	config.ContentType = "application/vnd.kubernetes.protobuf"
+
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err.Error())
