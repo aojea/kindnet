@@ -42,13 +42,13 @@ And a daemon named `kindnetd` with the following features:
 Kindnet can be installed on your cluster using the manifest [install-kindnet.yaml](install-kindnet.yaml)
 
 `kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml`
+https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml`
 
 By default, the `ptp` CNI plugin is used, but the `bridge` plugin can be selected by setting the environment
 variable `CNI_BRIDGE` in the `kindnet-cni` container. You can use the following manifest directly:
 
 `kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet-bridge.yaml`
+https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet-bridge.yaml`
 
 
 Kindnet installation manifest has an init container that drop the CNI binaries in the folder `/opt/cni/bin/`, however, you can install them directly supressing the init container in the manifest and
