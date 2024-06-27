@@ -14,7 +14,7 @@
 
 ARG GOARCH="amd64"
 # STEP 1: Build kindnetd binary
-FROM golang:1.20 AS builder
+FROM golang:1.22 AS builder
 # golang envs
 ARG GOARCH="amd64"
 ARG CNI_VERSION="v1.2.0"
