@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
@@ -189,6 +190,38 @@ func main() {
 
 	// setup nodes reconcile function, closes over arguments
 	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
+
+	// network policies
+
+	// on kind nodes the hostname matches the node name
+	nodeName, err := os.Hostname()
+	if err != nil {
+		klog.Fatalf("couldn't determine hostname: %v", err)
+	}
+
+	cfg := networkpolicy.Config{
+		FailOpen: true,
+		QueueID:  100,
+		NodeName: nodeName,
+	}
+
+	networkPolicyController, err := networkpolicy.NewController(
+		clientset,
+		informersFactory.Networking().V1().NetworkPolicies(),
+		informersFactory.Core().V1().Namespaces(),
+		informersFactory.Core().V1().Pods(),
+		nodeInformer,
+		nil,
+		nil,
+		nil,
+		cfg)
+	if err != nil {
+		klog.Infof("Error creating network policy controller: %v, skipping network policies", err)
+	} else {
+		go func() {
+			_ = networkPolicyController.Run(ctx)
+		}()
+	}
 
 	// main control loop
 	informersFactory.Start(ctx.Done())
