@@ -172,10 +172,8 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 		return nil
 	}
 
-	// use an extension not recognized by CNI to write the contents initially
-	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
-	// then we can rename to atomically make the file appear
-	f, err := os.Create(c.path + ".temp")
+	// use a temporal file so we can rename to atomically make the file appear
+	f, err := os.CreateTemp("", "kindnet.cni.temp")
 	if err != nil {
 		return err
 	}
