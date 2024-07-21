@@ -13,15 +13,29 @@ rules:
       - watch
       - patch
   - apiGroups:
-     - ""
+      - ""
     resources:
       - configmaps
     verbs:
       - get
   - apiGroups:
-     - "networking.k8s.io"
+      - "networking.k8s.io"
     resources:
       - networkpolicies
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods
     verbs:
       - list
       - watch
