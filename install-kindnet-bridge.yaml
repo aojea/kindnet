@@ -19,6 +19,14 @@ rules:
     verbs:
       - get
   - apiGroups:
+      - ""
+    resources:
+      - pods
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
      - "networking.k8s.io"
     resources:
       - networkpolicies
