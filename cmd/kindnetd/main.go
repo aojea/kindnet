@@ -61,6 +61,21 @@ const (
 	DualStackFamily IPFamily = "dualstack"
 )
 
+var (
+	networkpolicies  bool
+	hostnameOverride string
+)
+
+func init() {
+	flag.BoolVar(&networkpolicies, "network-policy", false, "If set, enable Network Policies")
+	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
+
+	flag.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
+		flag.PrintDefaults()
+	}
+}
+
 func main() {
 	// enable logging
 	klog.InitFlags(nil)
@@ -192,37 +207,39 @@ func main() {
 	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
 
 	// network policies
+	if networkpolicies {
+		nodeName := hostnameOverride
+		if nodeName == "" {
+			nodeName, err = os.Hostname()
+			if err != nil {
+				klog.Fatalf("couldn't determine hostname: %v", err)
+			}
+		}
 
-	// on kind nodes the hostname matches the node name
-	nodeName, err := os.Hostname()
-	if err != nil {
-		klog.Fatalf("couldn't determine hostname: %v", err)
+		cfg := networkpolicy.Config{
+			FailOpen: true,
+			QueueID:  100,
+			NodeName: nodeName,
+		}
+
+		networkPolicyController, err := networkpolicy.NewController(
+			clientset,
+			informersFactory.Networking().V1().NetworkPolicies(),
+			informersFactory.Core().V1().Namespaces(),
+			informersFactory.Core().V1().Pods(),
+			nodeInformer,
+			nil,
+			nil,
+			nil,
+			cfg)
+		if err != nil {
+			klog.Infof("Error creating network policy controller: %v, skipping network policies", err)
+		} else {
+			go func() {
+				_ = networkPolicyController.Run(ctx)
+			}()
+		}
 	}
-
-	cfg := networkpolicy.Config{
-		FailOpen: true,
-		QueueID:  100,
-		NodeName: nodeName,
-	}
-
-	networkPolicyController, err := networkpolicy.NewController(
-		clientset,
-		informersFactory.Networking().V1().NetworkPolicies(),
-		informersFactory.Core().V1().Namespaces(),
-		informersFactory.Core().V1().Pods(),
-		nodeInformer,
-		nil,
-		nil,
-		nil,
-		cfg)
-	if err != nil {
-		klog.Infof("Error creating network policy controller: %v, skipping network policies", err)
-	} else {
-		go func() {
-			_ = networkPolicyController.Run(ctx)
-		}()
-	}
-
 	// main control loop
 	informersFactory.Start(ctx.Done())
 
