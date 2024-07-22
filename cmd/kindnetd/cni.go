@@ -29,6 +29,7 @@ import (
 	"github.com/vishvananda/netlink"
 
 	corev1 "k8s.io/api/core/v1"
+	utilsnet "k8s.io/utils/net"
 )
 
 /* cni config management */
@@ -36,33 +37,41 @@ import (
 // CNIConfigInputs is supplied to the CNI config template
 type CNIConfigInputs struct {
 	PodCIDRs      []string
+	RangeStart    []string
 	DefaultRoutes []string
 	Mtu           int
 }
 
 // ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
 func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
-
-	defaultRoutes := []string{"0.0.0.0/0", "::/0"}
-	// check if is a dualstack cluster
-	if len(node.Spec.PodCIDRs) > 1 {
-		return CNIConfigInputs{
-			PodCIDRs:      node.Spec.PodCIDRs,
-			DefaultRoutes: defaultRoutes,
+	inputs := CNIConfigInputs{}
+	podCIDRs, _ := utilsnet.ParseCIDRs(node.Spec.PodCIDRs) // already validated
+	for _, podCIDR := range podCIDRs {
+		inputs.PodCIDRs = append(inputs.PodCIDRs, podCIDR.String())
+		// define the default route
+		if utilsnet.IsIPv4CIDR(podCIDR) {
+			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "0.0.0.0/0")
+		} else {
+			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "::/0")
 		}
+		// reserve the first IPs of the range
+		size := utilsnet.RangeSize(podCIDR)
+		podCapacity := node.Status.Capacity.Pods().Value()
+		if podCapacity == 0 {
+			podCapacity = 110 // default to 110
+		}
+		rangeStart := ""
+		offset := size - podCapacity
+		if offset > 10 { // reserve the first 10 addresses of the Pod range if there is capacity
+			startAddress, err := utilsnet.GetIndexedIP(podCIDR, 10)
+			if err == nil {
+				rangeStart = startAddress.String()
+			}
+		}
+		inputs.RangeStart = append(inputs.RangeStart, rangeStart)
+
 	}
-	// the cluster is single stack
-	// we use the legacy node.Spec.PodCIDR for backwards compatibility
-	podCIDRs := []string{node.Spec.PodCIDR}
-	// This is a single stack cluster
-	defaultRoute := defaultRoutes[:1]
-	if isIPv6CIDRString(podCIDRs[0]) {
-		defaultRoute = defaultRoutes[1:]
-	}
-	return CNIConfigInputs{
-		PodCIDRs:      podCIDRs,
-		DefaultRoutes: defaultRoute,
-	}
+	return inputs
 }
 
 // GetMTU returns the MTU used for the IP family
@@ -144,17 +153,15 @@ const cniConfigTemplate = `
 			"type": "host-local",
 			"dataDir": "/run/cni-ipam-state",
 			"routes": [
-				{{$first := true}}
-				{{- range $route := .DefaultRoutes}}
-				{{if $first}}{{$first = false}}{{else}},{{end}}
+				{{- range $i, $route := .DefaultRoutes}}
+				{{- if gt $i 0 }},{{end}}
 				{ "dst": "{{ $route }}" }
 				{{- end}}
 			],
 			"ranges": [
-				{{$first := true}}
-				{{- range $cidr := .PodCIDRs}}
-				{{if $first}}{{$first = false}}{{else}},{{end}}
-				[ { "subnet": "{{ $cidr }}" } ]
+				{{- range $i, $cidr := .PodCIDRs}}
+				{{- if gt $i 0 }},{{end}}
+				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
 				{{- end}}
 			]
 		}
@@ -188,16 +195,15 @@ const cniConfigTemplateBridge = `
 			"type": "host-local",
 			"dataDir": "/run/cni-ipam-state",
 			"ranges": [
-				{{$first := true}}
-				{{- range $cidr := .PodCIDRs}}
-				{{if $first}}{{$first = false}}{{else}},{{end}}
-				[ { "subnet": "{{ $cidr }}" } ]
+				{{- range $i, $cidr := .PodCIDRs}}
+				{{- if gt $i 0 }},{{end}}
+				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
 				{{- end}}
 			]
 		}
-		{{if .Mtu}},
+		{{- if .Mtu}},
 		"mtu": {{ .Mtu }}
-		{{end}}
+		{{- end}}
 	},
 	{
 		"type": "portmap",
