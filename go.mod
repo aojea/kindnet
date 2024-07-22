@@ -6,8 +6,8 @@ require (
 	github.com/coreos/go-iptables v0.7.0
 	github.com/pkg/errors v0.9.1
 	github.com/vishvananda/netlink v1.1.0
-	k8s.io/api v0.30.2
-	k8s.io/apimachinery v0.30.2
+	k8s.io/api v0.30.3
+	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.2
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/kube-network-policies v0.5.0
