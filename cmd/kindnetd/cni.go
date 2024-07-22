@@ -17,13 +17,16 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"reflect"
 	"text/template"
 
 	"github.com/pkg/errors"
+	"github.com/vishvananda/netlink"
 
 	corev1 "k8s.io/api/core/v1"
 )
@@ -62,19 +65,68 @@ func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
 	}
 }
 
-// computeBridgeMTU finds the mtu for the eth0 interface
-// otherwise it defaults to ptp default behavior of being set by kernel
-func computeBridgeMTU() (int, error) {
+// GetMTU returns the MTU used for the IP family
+func GetMTU(ipFamily int) (int, error) {
+	iface, err := GetDefaultGwInterface(ipFamily)
+	if err != nil {
+		return 0, err
+	}
+	mtu, err := getInterfaceMTU(iface)
+	if err != nil {
+		return 0, err
+	}
+	return mtu, nil
+}
+
+// getInterfaceMTU finds the mtu for the interface
+func getInterfaceMTU(iface string) (int, error) {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return 0, err
 	}
 	for _, inter := range interfaces {
-		if inter.Name == "eth0" {
+		if inter.Name == iface {
 			return inter.MTU, nil
 		}
 	}
-	return 0, errors.New("Found no eth0 device")
+	return 0, fmt.Errorf("no %s device found", iface)
+}
+
+func GetDefaultGwInterface(ipFamily int) (string, error) {
+	routes, err := netlink.RouteList(nil, ipFamily)
+	if err != nil {
+		return "", err
+	}
+
+	for _, r := range routes {
+		// no multipath
+		if len(r.MultiPath) == 0 {
+			if r.Gw == nil {
+				continue
+			}
+			intfLink, err := netlink.LinkByIndex(r.LinkIndex)
+			if err != nil {
+				log.Printf("Failed to get interface link for route %v : %v", r, err)
+				continue
+			}
+			return intfLink.Attrs().Name, nil
+		}
+
+		// multipath, use the first valid entry
+		// xref: https://github.com/vishvananda/netlink/blob/6ffafa9fc19b848776f4fd608c4ad09509aaacb4/route.go#L137-L145
+		for _, nh := range r.MultiPath {
+			if nh.Gw == nil {
+				continue
+			}
+			intfLink, err := netlink.LinkByIndex(r.LinkIndex)
+			if err != nil {
+				log.Printf("Failed to get interface link for route %v : %v", r, err)
+				continue
+			}
+			return intfLink.Attrs().Name, nil
+		}
+	}
+	return "", fmt.Errorf("not routes found")
 }
 
 // cniConfigPath is where kindnetd will write the computed CNI config
