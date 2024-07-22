@@ -62,11 +62,13 @@ const (
 )
 
 var (
+	useBridge        bool
 	networkpolicies  bool
 	hostnameOverride string
 )
 
 func init() {
+	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", false, "If set, enable Network Policies")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
 
@@ -143,7 +145,7 @@ func main() {
 	}
 
 	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	useBridge := len(os.Getenv("CNI_BRIDGE")) > 0
+	useBridge = useBridge || len(os.Getenv("CNI_BRIDGE")) > 0
 	// disable offloading in the bridge if exists
 	disableOffload := false
 	if useBridge {
