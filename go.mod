@@ -3,13 +3,13 @@ module sigs.k8s.io/kind/images/kindnetd
 go 1.22.0
 
 require (
-	github.com/coreos/go-iptables v0.7.0
 	github.com/pkg/errors v0.9.1
 	github.com/vishvananda/netlink v1.3.0
 	k8s.io/api v0.30.3
 	k8s.io/apimachinery v0.30.3
 	k8s.io/client-go v0.30.3
 	k8s.io/klog/v2 v2.130.1
+	sigs.k8s.io/knftables v0.0.16
 	sigs.k8s.io/kube-network-policies v0.5.1
 )
 
@@ -30,7 +30,6 @@ require (
 	github.com/prometheus/common v0.53.0 // indirect
 	github.com/prometheus/procfs v0.14.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	sigs.k8s.io/knftables v0.0.16 // indirect
 	sigs.k8s.io/network-policy-api v0.1.5 // indirect
 )
 

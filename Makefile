@@ -36,4 +36,4 @@ IMAGE?=$(REGISTRY)/$(IMAGE_NAME):$(TAG)
 export DOCKER_CLI_EXPERIMENTAL=enabled
 image-build:
 # docker buildx build --platform=${PLATFORMS} $(OUTPUT) --progress=$(PROGRESS) -t ${IMAGE} --pull $(EXTRA_BUILD_OPT) .
-	docker build . -t ${IMAGE}
+	docker build . -t ${IMAGE} --load
