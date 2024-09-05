@@ -67,10 +67,14 @@ func (ks *kubeSubnets) Get(clientset *kubernetes.Clientset) (string, error) {
 // It returns an array of strings with the Cluster CIDR subnets
 // It can only obtain the POD subnet parameter from one place for consistency
 // The order is:
-// 1. POD_SUBNET environment variables
-// 2. Pod subnet value in kubeadm configmap
-// 3. Cluster CIDR value in kube-proxy configmap
-func getNoMasqueradeSubnets(clientset *kubernetes.Clientset) ([]string, []string) {
+// 1. cluster-cidr flag
+// 2. POD_SUBNET environment variable
+// 3. Pod subnet value in kubeadm configmap
+// 4. Cluster CIDR value in kube-proxy configmap
+func getNoMasqueradeSubnets(clusterCIDR string, clientset *kubernetes.Clientset) ([]string, []string) {
+	if clusterCIDR != "" {
+		return splitCIDRs(strings.Split(clusterCIDR, ","))
+	}
 	// check for environment variables (legacy)
 	podSubnetEnv := os.Getenv("POD_SUBNET")
 	if podSubnetEnv != "" {

@@ -65,12 +65,14 @@ var (
 	useBridge        bool
 	networkpolicies  bool
 	hostnameOverride string
+	clusterCIDR      string
 )
 
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", false, "If set, enable Network Policies")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
+	flag.StringVar(&clusterCIDR, "cluster-cidr", "", "CIDR Range for Pods in cluster.")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -161,20 +163,7 @@ func main() {
 		cniConfigPath, useBridge, disableOffload, mtu)
 
 	// enforce ip masquerade rules
-	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clientset)
-	// detect the cluster IP family based on the Cluster CIDR akka PodSubnet
-	var ipFamily IPFamily
-	switch {
-	case len(noMaskIPv4Subnets) > 0 && len(noMaskIPv6Subnets) > 0:
-		ipFamily = DualStackFamily
-	case len(noMaskIPv6Subnets) > 0:
-		ipFamily = IPv6Family
-	case len(noMaskIPv4Subnets) > 0:
-		ipFamily = IPv4Family
-	default:
-		panic("Cluster CIDR is not defined")
-	}
-	klog.Infof("kindnetd IP family: %q", ipFamily)
+	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clusterCIDR, clientset)
 
 	// create an ipMasqAgent for IPv4
 	if len(noMaskIPv4Subnets) > 0 {
@@ -188,6 +177,8 @@ func main() {
 				panic(err)
 			}
 		}()
+	} else {
+		klog.Infof("Skipping ipMasqAgent for IPv4")
 	}
 
 	// create an ipMasqAgent for IPv6
@@ -203,10 +194,12 @@ func main() {
 				panic(err)
 			}
 		}()
+	} else {
+		klog.Infof("Skipping ipMasqAgent for IPv6")
 	}
 
 	// setup nodes reconcile function, closes over arguments
-	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP, ipFamily, clientset)
+	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP)
 
 	// network policies
 	if networkpolicies {
@@ -296,7 +289,7 @@ func main() {
 }
 
 // nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPFamily, clientset *kubernetes.Clientset) func([]*corev1.Node) error {
+func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string) func([]*corev1.Node) error {
 	// reconciles a node
 	reconcileNode := func(node *corev1.Node) error {
 		// first get this node's IPs
@@ -317,14 +310,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string, ipFamily IPF
 			return nil
 		}
 
-		// This is another node. Add routes to the POD subnets in the other nodes
-		// don't do anything unless there is a PodCIDR
-		var podCIDRs []string
-		if ipFamily == DualStackFamily {
-			podCIDRs = node.Spec.PodCIDRs
-		} else {
-			podCIDRs = []string{node.Spec.PodCIDR}
-		}
+		podCIDRs := node.Spec.PodCIDRs
 		if len(podCIDRs) == 0 {
 			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
 			return nil
