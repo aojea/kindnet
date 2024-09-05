@@ -71,9 +71,9 @@ var (
 
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
-	flag.BoolVar(&networkpolicies, "network-policy", false, "If set, enable Network Policies")
+	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
-	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic")
+	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
 
 	flag.Usage = func() {
