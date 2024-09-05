@@ -62,17 +62,19 @@ const (
 )
 
 var (
-	useBridge        bool
-	networkpolicies  bool
-	hostnameOverride string
-	clusterCIDR      string
+	useBridge         bool
+	networkpolicies   bool
+	hostnameOverride  string
+	masquerading      bool
+	noMasqueradeCIDRs string
 )
 
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", false, "If set, enable Network Policies")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
-	flag.StringVar(&clusterCIDR, "cluster-cidr", "", "CIDR Range for Pods in cluster.")
+	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic")
+	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -162,40 +164,22 @@ func main() {
 	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
 		cniConfigPath, useBridge, disableOffload, mtu)
 
-	// enforce ip masquerade rules
-	noMaskIPv4Subnets, noMaskIPv6Subnets := getNoMasqueradeSubnets(clusterCIDR, clientset)
-
-	// create an ipMasqAgent for IPv4
-	if len(noMaskIPv4Subnets) > 0 {
-		klog.Infof("noMask IPv4 subnets: %v", noMaskIPv4Subnets)
-		masqAgentIPv4, err := NewIPMasqAgent(false, noMaskIPv4Subnets)
+	// create an ipMasqAgent
+	if masquerading {
+		klog.Infof("masquerading cluster traffic")
+		masqAgent, err := NewIPMasqAgent(nodeInformer, noMasqueradeCIDRs)
 		if err != nil {
-			panic(err.Error())
-		}
-		go func() {
-			if err := masqAgentIPv4.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
-			}
-		}()
-	} else {
-		klog.Infof("Skipping ipMasqAgent for IPv4")
-	}
-
-	// create an ipMasqAgent for IPv6
-	if len(noMaskIPv6Subnets) > 0 {
-		klog.Infof("noMask IPv6 subnets: %v", noMaskIPv6Subnets)
-		masqAgentIPv6, err := NewIPMasqAgent(true, noMaskIPv6Subnets)
-		if err != nil {
-			panic(err.Error())
+			klog.Fatalf("error creating masquerading agent: %v", err)
 		}
 
 		go func() {
-			if err := masqAgentIPv6.SyncRulesForever(time.Second * 60); err != nil {
-				panic(err)
+			defer masqAgent.CleanRules()
+			if err := masqAgent.SyncRulesForever(ctx, time.Second*60); err != nil {
+				klog.Infof("error running masquerading agent: %v", err)
 			}
 		}()
 	} else {
-		klog.Infof("Skipping ipMasqAgent for IPv6")
+		klog.Info("Skipping ipMasqAgent")
 	}
 
 	// setup nodes reconcile function, closes over arguments
@@ -316,7 +300,7 @@ func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string) func([]*core
 			return nil
 		}
 		klog.Infof("Node %v has CIDR %s \n", node.Name, podCIDRs)
-		podCIDRsv4, podCIDRsv6 := splitCIDRs(podCIDRs)
+		podCIDRsv4, podCIDRsv6 := splitCIDRslice(podCIDRs)
 
 		// obtain the PodCIDR gateway
 		var nodeIPv4, nodeIPv6 string

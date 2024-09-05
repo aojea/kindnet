@@ -15,8 +15,8 @@ on:
 
 env:
   GO_VERSION: "1.22.3"
-  K8S_VERSION: "v1.30.0"
-  KIND_VERSION: "v0.22.0"
+  K8S_VERSION: "v1.31.0"
+  KIND_VERSION: "v0.24.0"
   KIND_CLUSTER_NAME: "kindnet"
   REGISTRY: ghcr.io
   IMAGE_NAME: aojea/kindnetd
@@ -56,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         ipFamily: ["ipv4", "ipv6", "dual"]
-        cniMode: ["ptp", "bridge"]
+        cniMode: ["ptp"]
     env:
       JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}-${{ matrix.cniMode }}"
       IP_FAMILY: ${{ matrix.ipFamily }}

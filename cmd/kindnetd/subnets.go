@@ -17,97 +17,20 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"net"
-	"os"
-	"regexp"
 	"strings"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
 )
 
-const (
-	kubeadmClusterCIDRRegex   = `\s+podSubnet: (.*)\n`
-	kubeproxyClusterCIDRRegex = `\s+clusterCIDR: (.*)\n`
-)
-
-type kubeSubnets struct {
-	regex     string
-	configmap string
-	namespace string
+// splitCIDRs given a comma separated list with CIDRS it returns 2 slice of strings per IP family
+func splitCIDRs(cidrs string) ([]string, []string) {
+	if cidrs == "" {
+		return nil, nil
+	}
+	subnets := strings.Split(cidrs, ",")
+	return splitCIDRslice(subnets)
 }
 
-func newKubeSubnets(regex, configmap, namespace string) *kubeSubnets {
-	return &kubeSubnets{
-		regex:     regex,
-		configmap: configmap,
-		namespace: namespace,
-	}
-}
-
-func (ks *kubeSubnets) Get(clientset *kubernetes.Clientset) (string, error) {
-	cidrRegexp := regexp.MustCompile(ks.regex)
-	configMap, err := clientset.CoreV1().ConfigMaps(ks.namespace).Get(context.TODO(), ks.configmap, metav1.GetOptions{})
-	if err != nil {
-		println("ERROR: " + err.Error())
-		return "", err
-	}
-	for _, data := range configMap.Data {
-		matches := cidrRegexp.FindStringSubmatch(data)
-		if len(matches) > 0 {
-			println("MATCH POD: " + matches[1])
-			return matches[1], nil
-		}
-	}
-	return "", nil
-}
-
-// getNoMasqueradeSubnets tries to get the POD networks subnets to not Masquerade them
-// It returns an array of strings with the Cluster CIDR subnets
-// It can only obtain the POD subnet parameter from one place for consistency
-// The order is:
-// 1. cluster-cidr flag
-// 2. POD_SUBNET environment variable
-// 3. Pod subnet value in kubeadm configmap
-// 4. Cluster CIDR value in kube-proxy configmap
-func getNoMasqueradeSubnets(clusterCIDR string, clientset *kubernetes.Clientset) ([]string, []string) {
-	if clusterCIDR != "" {
-		return splitCIDRs(strings.Split(clusterCIDR, ","))
-	}
-	// check for environment variables (legacy)
-	podSubnetEnv := os.Getenv("POD_SUBNET")
-	if podSubnetEnv != "" {
-		podSubnetEnv = strings.TrimSpace(podSubnetEnv)
-		return splitCIDRs(strings.Split(podSubnetEnv, ","))
-	}
-
-	// try getting from kubeadm configmap
-	kubeadmSubnets := newKubeSubnets(kubeadmClusterCIDRRegex, "kubeadm-config", "kube-system")
-	podSubnetKubeadm, _ := kubeadmSubnets.Get(clientset)
-	if podSubnetKubeadm != "" {
-		podSubnetKubeadm = strings.TrimSpace(podSubnetKubeadm)
-		return splitCIDRs(strings.Split(podSubnetKubeadm, ","))
-	}
-
-	// try getting from kubeproxy configmap
-	kubeproxySubnets := newKubeSubnets(kubeproxyClusterCIDRRegex, "kube-proxy", "kube-system")
-	podSubnetKubeproxy, _ := kubeproxySubnets.Get(clientset)
-	if podSubnetKubeproxy != "" {
-		podSubnetKubeproxy = strings.TrimSpace(podSubnetKubeproxy)
-		return splitCIDRs(strings.Split(podSubnetKubeproxy, ","))
-
-	}
-
-	// TODO: we have other fallback options for completeness including:
-	// - kube-apiserver flags
-	// - component config
-	// - defaults
-	return nil, nil
-}
-
-// splitCIDRs given a slice of strings with CIDRS it returns 2 slice of strings per IP family
-func splitCIDRs(cidrs []string) ([]string, []string) {
+func splitCIDRslice(cidrs []string) ([]string, []string) {
 	var v4subnets, v6subnets []string
 	for _, subnet := range cidrs {
 		if isIPv6CIDRString(subnet) {

@@ -80,14 +80,17 @@ spec:
       serviceAccountName: kindnet
       initContainers:
       - name: install-cni-bin
-        image: ghcr.io/aojea/kindnetd:v1.4.0
+        image: ghcr.io/aojea/kindnetd:v1.5.0
         command: ['sh', '-c', 'cd /opt/cni/bin; for i in * ; do cat $i > /cni/$i ; chmod +x /cni/$i ; done']
         volumeMounts:
         - name: cni-bin
           mountPath: /cni
       containers:
       - name: kindnet-cni
-        image: ghcr.io/aojea/kindnetd:v1.4.0
+        image: ghcr.io/aojea/kindnetd:v1.5.0
+        args:
+        - /bin/kindnetd
+        - --v=2
         env:
         - name: HOST_IP
           valueFrom:
@@ -100,12 +103,6 @@ spec:
         volumeMounts:
         - name: cni-cfg
           mountPath: /etc/cni/net.d
-        - name: xtables-lock
-          mountPath: /run/xtables.lock
-          readOnly: false
-        - name: lib-modules
-          mountPath: /lib/modules
-          readOnly: true
         resources:
           requests:
             cpu: "100m"
@@ -126,11 +123,4 @@ spec:
         hostPath:
           path: /etc/cni/net.d
           type: DirectoryOrCreate
-      - name: xtables-lock
-        hostPath:
-          path: /run/xtables.lock
-          type: FileOrCreate
-      - name: lib-modules
-        hostPath:
-          path: /lib/modules
 ---
