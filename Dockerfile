@@ -15,7 +15,7 @@
 # STEP 1: Build kindnetd binary
 FROM --platform=$BUILDPLATFORM golang:1.22 AS builder
 # golang envs
-ARG CNI_VERSION="v1.5.0"
+ARG CNI_VERSION="v1.5.1"
 ENV CGO_ENABLED=0
 # copy in sources
 WORKDIR /src
@@ -39,7 +39,7 @@ RUN echo "Installing CNI binaries ..." \
       \) \
       -delete
 # STEP 2: Build small image
-FROM registry.k8s.io/build-image/distroless-iptables:v0.5.5
+FROM registry.k8s.io/build-image/distroless-iptables:v0.6.2
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /opt/cni/bin /opt/cni/bin
 CMD ["/bin/kindnetd"]
