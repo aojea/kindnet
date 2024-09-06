@@ -27,6 +27,20 @@ import (
 func syncRoute(nodeIP string, podCIDRs []string) error {
 	ip := net.ParseIP(nodeIP)
 
+	// check if nodeIP is reachable, this happens when nodes are in the same l2 domain
+	// Environments like GCE implement IP alias, and assign /24 to the VMs so there is
+	// no l2 domain for the instances, and the traffic is handled by the underneath SDN
+	routes, err := netlink.RouteGet(ip)
+	if err != nil {
+		return err
+	}
+	klog.V(7).Infof("Routes to Node %s : %v", ip, routes)
+	for _, route := range routes {
+		if route.Gw != nil {
+			klog.Infof("Route to Node %s via %s, no direct routing needed, if pods can not communicate please configure your router correctly", ip, route.Gw.String())
+			return nil
+		}
+	}
 	for _, podCIDR := range podCIDRs {
 		// parse subnet
 		dst, err := netlink.ParseIPNet(podCIDR)
@@ -36,18 +50,20 @@ func syncRoute(nodeIP string, podCIDRs []string) error {
 
 		// Check if the route exists to the other node's PodCIDR
 		routeToDst := netlink.Route{Dst: dst, Gw: ip}
-		route, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
+		routes, err := netlink.RouteListFiltered(nl.GetIPFamily(ip), &routeToDst, netlink.RT_FILTER_DST)
 		if err != nil {
 			return err
 		}
 
 		// Add route if not present
-		if len(route) == 0 {
+		if len(routes) == 0 {
 			klog.Infof("Adding route %v \n", routeToDst)
 			if err := netlink.RouteAdd(&routeToDst); err != nil {
 				return err
 			}
 		}
+		klog.V(4).Infof("Routes to Node %s : %v", ip, routes)
+
 	}
 	return nil
 }
