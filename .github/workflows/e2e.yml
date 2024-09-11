@@ -41,7 +41,7 @@ jobs:
         mkdir _output
         docker save ghcr.io/aojea/kindnetd:test  > _output/kindnetd-image.tar
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v4
       with:
         name: test-image
         path: _output/kindnetd-image.tar
@@ -110,7 +110,7 @@ jobs:
         # dump the kubeconfig for later
         /usr/local/bin/kind get kubeconfig --name ${{ env.KIND_CLUSTER_NAME}} > _artifacts/kubeconfig.conf
 
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v4
       with:
         name: test-image
 
@@ -188,7 +188,7 @@ jobs:
 
     - name: Upload Junit Reports
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: kind-junit-${{ env.JOB_NAME }}-${{ github.run_id }}
         path: './_artifacts/*.xml'
@@ -200,7 +200,7 @@ jobs:
 
     - name: Upload logs
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: kind-logs-${{ env.JOB_NAME }}-${{ github.run_id }}
         path: ./_artifacts/logs
