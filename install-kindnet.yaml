@@ -74,6 +74,7 @@ spec:
         k8s-app: kindnet
     spec:
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       tolerations:
       - operator: Exists
         effect: NoSchedule

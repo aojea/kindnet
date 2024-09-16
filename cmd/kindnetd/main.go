@@ -64,6 +64,7 @@ const (
 var (
 	useBridge         bool
 	networkpolicies   bool
+	dnsCaching        bool
 	hostnameOverride  string
 	masquerading      bool
 	noMasqueradeCIDRs string
@@ -72,6 +73,7 @@ var (
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
+	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default true)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
 	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
@@ -90,6 +92,16 @@ func main() {
 	flag.VisitAll(func(flag *flag.Flag) {
 		klog.Infof("FLAG: --%s=%q", flag.Name, flag.Value)
 	})
+
+	var err error
+	nodeName := hostnameOverride
+	if nodeName == "" {
+		nodeName, err = os.Hostname()
+		if err != nil {
+			klog.Fatalf("couldn't determine hostname: %v", err)
+		}
+	}
+
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -182,19 +194,29 @@ func main() {
 		klog.Info("Skipping ipMasqAgent")
 	}
 
+	// create a dnsCacheAgent
+	if dnsCaching {
+		klog.Infof("caching DNS cluster traffic")
+		dnsCacheAgent, err := NewDNSCacheAgent(nodeName, nodeInformer)
+		if err != nil {
+			klog.Fatalf("error creating dnsCacheAgent agent: %v", err)
+		}
+
+		go func() {
+			defer dnsCacheAgent.CleanRules()
+			if err := dnsCacheAgent.Run(ctx); err != nil {
+				klog.Infof("error running dnsCacheAgent agent: %v", err)
+			}
+		}()
+	} else {
+		klog.Info("Skipping dnsCacheAgent")
+	}
+
 	// setup nodes reconcile function, closes over arguments
 	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP)
 
 	// network policies
 	if networkpolicies {
-		nodeName := hostnameOverride
-		if nodeName == "" {
-			nodeName, err = os.Hostname()
-			if err != nil {
-				klog.Fatalf("couldn't determine hostname: %v", err)
-			}
-		}
-
 		cfg := networkpolicy.Config{
 			FailOpen: true,
 			QueueID:  100,
