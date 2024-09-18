@@ -17,9 +17,7 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -76,11 +74,11 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 	// start listeners
 	udpLc := net.ListenConfig{Control: func(network, address string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) {
-			if err := unix.SetsockoptInt(int(fd), syscall.SOL_IP, syscall.IP_TRANSPARENT, 1); err != nil {
-				klog.Fatalf("error setting IP_TRANSPARENT: %v", err)
+			if err := unix.SetsockoptInt(int(fd), unix.SOL_IPV6, unix.IPV6_TRANSPARENT, 1); err != nil {
+				klog.Fatalf("error setting IPV6_TRANSPARENT: %v", err)
 			}
-			if err := unix.SetsockoptInt(int(fd), syscall.SOL_IP, syscall.IP_RECVORIGDSTADDR, 1); err != nil {
-				klog.Fatalf("error setting IP_RECVORIGDSTADDR: %v", err)
+			if err := unix.SetsockoptInt(int(fd), unix.SOL_IPV6, unix.IPV6_RECVORIGDSTADDR, 1); err != nil {
+				klog.Fatalf("error setting IPV6_RECVORIGDSTADDR: %v", err)
 
 			}
 
@@ -125,7 +123,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 	// TCP NAT64 proxy
 	tcpLc := net.ListenConfig{Control: func(network, address string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) {
-			if err := unix.SetsockoptInt(int(fd), syscall.SOL_IP, syscall.IP_TRANSPARENT, 1); err != nil {
+			if err := unix.SetsockoptInt(int(fd), unix.SOL_IPV6, unix.IPV6_TRANSPARENT, 1); err != nil {
 				klog.Fatalf("error setting IP_TRANSPARENT: %v", err)
 			}
 		})
@@ -389,13 +387,13 @@ func handleUDPConn(origAddr *net.UDPAddr, dstAddr *net.UDPAddr, data []byte) {
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
 				// Mark connections so thet are not processed by the netfilter TPROXY rules
-				if err := unix.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_MARK, tproxyNAT64BypassMark); err != nil {
+				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_MARK, tproxyNAT64BypassMark); err != nil {
 					klog.Infof("setting SO_MARK bypass: %v", err)
 				}
-				if err := unix.SetsockoptInt(int(fd), syscall.SOL_IP, syscall.IP_TRANSPARENT, 1); err != nil {
+				if err := unix.SetsockoptInt(int(fd), unix.SOL_IP, unix.IP_TRANSPARENT, 1); err != nil {
 					klog.Infof("setting IP_TRANSPARENT: %v", err)
 				}
-				if err := unix.SetsockoptInt(int(fd), syscall.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+				if err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
 					klog.Infof("setting SO_REUSEPORT: %v", err)
 				}
 			})
@@ -431,41 +429,23 @@ func ReadFromUDP(conn *net.UDPConn, b []byte) (int, *net.UDPAddr, *net.UDPAddr, 
 		return 0, nil, nil, fmt.Errorf("parsing socket control message: %s", err)
 	}
 
-	var originalDst *net.UDPAddr
-	for _, msg := range msgs {
-		if msg.Header.Level == syscall.SOL_IP && msg.Header.Type == syscall.IP_RECVORIGDSTADDR {
-			originalDstRaw := &syscall.RawSockaddrInet4{}
-			if err = binary.Read(bytes.NewReader(msg.Data), binary.LittleEndian, originalDstRaw); err != nil {
-				return 0, nil, nil, fmt.Errorf("reading original destination address: %s", err)
+	var dstAddr *net.UDPAddr
+	for _, m := range msgs {
+		if m.Header.Level == unix.SOL_IPV6 && m.Header.Type == unix.IPV6_ORIGDSTADDR {
+			pp := (*syscall.RawSockaddrInet6)(unsafe.Pointer(&m.Data[0]))
+			p := (*[2]byte)(unsafe.Pointer(&pp.Port))
+			dstAddr = &net.UDPAddr{
+				IP:   net.IP(pp.Addr[:]),
+				Port: int(p[0])<<8 + int(p[1]),
+				Zone: strconv.Itoa(int(pp.Scope_id)),
 			}
-
-			switch originalDstRaw.Family {
-			case syscall.AF_INET:
-				pp := (*syscall.RawSockaddrInet4)(unsafe.Pointer(originalDstRaw))
-				p := (*[2]byte)(unsafe.Pointer(&pp.Port))
-				originalDst = &net.UDPAddr{
-					IP:   net.IPv4(pp.Addr[0], pp.Addr[1], pp.Addr[2], pp.Addr[3]),
-					Port: int(p[0])<<8 + int(p[1]),
-				}
-
-			case syscall.AF_INET6:
-				pp := (*syscall.RawSockaddrInet6)(unsafe.Pointer(originalDstRaw))
-				p := (*[2]byte)(unsafe.Pointer(&pp.Port))
-				originalDst = &net.UDPAddr{
-					IP:   net.IP(pp.Addr[:]),
-					Port: int(p[0])<<8 + int(p[1]),
-					Zone: strconv.Itoa(int(pp.Scope_id)),
-				}
-
-			default:
-				return 0, nil, nil, fmt.Errorf("original destination is an unsupported network family")
-			}
+			break
 		}
 	}
 
-	if originalDst == nil {
-		return 0, nil, nil, fmt.Errorf("unable to obtain original destination: %s", err)
+	if dstAddr == nil {
+		return 0, nil, nil, fmt.Errorf("unable to obtain original destination oob: %+v", oob)
 	}
 
-	return n, addr, originalDst, nil
+	return n, addr, dstAddr, nil
 }
