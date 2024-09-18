@@ -35,7 +35,7 @@ import (
 // but allows to masquerade the cluster to external traffic.
 func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs string) (*IPMasqAgent, error) {
 	klog.V(2).Info("Initializing nftables")
-	nft, err := knftables.New(knftables.InetFamily, "kindnet")
+	nft, err := knftables.New(knftables.InetFamily, "kindnet-ipmasq")
 	if err != nil {
 		return nil, err
 	}
