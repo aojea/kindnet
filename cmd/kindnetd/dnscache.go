@@ -509,6 +509,7 @@ func (d *DNSCacheAgent) dnsPacketRoundTrip(b []byte) []byte {
 			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
 		}
 		buf := make([]byte, maxDNSSize)
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // golint: errcheck
 		n, err := conn.Read(buf)
 		if err != nil {
 			klog.Infof("error on UDP connection: %v", err)
