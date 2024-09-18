@@ -141,33 +141,20 @@ jobs:
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
 
 
-    - name: Workaround CoreDNS for IPv6 airgapped
+    - name: Use DNS64 upstream DNS server
       if: ${{ matrix.ipFamily == 'ipv6' }}
       run: |
-        # Patch CoreDNS to work in Github CI
-        # 1. Github CI doesn´t offer IPv6 connectivity, so CoreDNS should be configured
-        # to work in an offline environment:
-        # https://github.com/coredns/coredns/issues/2494#issuecomment-457215452
-        # 2. Github CI adds following domains to resolv.conf search field:
-        # .net.
-        # CoreDNS should handle those domains and answer with NXDOMAIN instead of SERVFAIL
-        # otherwise pods stops trying to resolve the domain.
-        # Get the current config
-        original_coredns=$(/usr/local/bin/kubectl get -oyaml -n=kube-system configmap/coredns)
+        # Use Google Public DNS64 https://developers.google.com/speed/public-dns/docs/dns64
+        original_coredns=$(kubectl get -oyaml -n=kube-system configmap/coredns)
         echo "Original CoreDNS config:"
         echo "${original_coredns}"
         # Patch it
-        fixed_coredns=$(
-          printf '%s' "${original_coredns}" | sed \
-            -e 's/^.*kubernetes cluster\.local/& net/' \
-            -e '/^.*upstream$/d' \
-            -e '/^.*fallthrough.*$/d' \
-            -e '/^.*forward . \/etc\/resolv.conf$/d' \
-            -e '/^.*loop$/d' \
-        )
+        fixed_coredns=$( printf '%s' "${original_coredns}" | sed 's/\/etc\/resolv.conf/[64:ff9b::8.8.8.8]:53/' )
         echo "Patched CoreDNS config:"
         echo "${fixed_coredns}"
-        printf '%s' "${fixed_coredns}" | /usr/local/bin/kubectl apply -f -
+        printf '%s' "${fixed_coredns}" | kubectl apply -f -
+        kubectl -n kube-system rollout restart deployment coredns
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
 
     - name: Run tests
       run: |
