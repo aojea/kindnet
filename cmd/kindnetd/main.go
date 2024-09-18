@@ -65,6 +65,7 @@ var (
 	useBridge         bool
 	networkpolicies   bool
 	dnsCaching        bool
+	nat64             bool
 	hostnameOverride  string
 	masquerading      bool
 	noMasqueradeCIDRs string
@@ -73,7 +74,8 @@ var (
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
-	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default true)")
+	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
+	flag.BoolVar(&nat64, "na64", false, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 (default false)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
 	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
@@ -192,6 +194,24 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping ipMasqAgent")
+	}
+
+	// create an nat64 agent
+	if nat64 {
+		klog.Infof("nat64 traffic")
+		nat64Agent, err := NewNAT64Agent()
+		if err != nil {
+			klog.Fatalf("error creating nat64 agent: %v", err)
+		}
+
+		go func() {
+			defer nat64Agent.CleanRules()
+			if err := nat64Agent.Run(ctx); err != nil {
+				klog.Infof("error running nat64 agent: %v", err)
+			}
+		}()
+	} else {
+		klog.Info("Skipping nat64 agent")
 	}
 
 	// create a dnsCacheAgent
