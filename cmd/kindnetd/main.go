@@ -243,9 +243,11 @@ func main() {
 	// network policies
 	if networkpolicies {
 		cfg := networkpolicy.Config{
-			FailOpen: true,
-			QueueID:  100,
-			NodeName: nodeName,
+			FailOpen:            true,
+			QueueID:             102,
+			NodeName:            nodeName,
+			NFTableName:         "kindnet-network-policies",
+			NetfilterBug1766Fix: true,
 		}
 
 		networkPolicyController, err := networkpolicy.NewController(
