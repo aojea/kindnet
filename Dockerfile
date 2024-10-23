@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # STEP 1: Build kindnetd binary
-FROM --platform=$BUILDPLATFORM golang:1.22 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
 # golang envs
 ARG CNI_VERSION="v1.5.1"
 ENV CGO_ENABLED=0
