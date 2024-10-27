@@ -220,7 +220,8 @@ func main() {
 	}
 
 	// create a dnsCacheAgent
-	if dnsCaching {
+	// TODO: support IPv6
+	if dnsCaching && !ip.Is6() {
 		klog.Infof("caching DNS cluster traffic")
 		dnsCacheAgent, err := NewDNSCacheAgent(nodeName, nodeInformer)
 		if err != nil {
