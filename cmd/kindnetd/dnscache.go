@@ -277,12 +277,13 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 
 	klog.Info("Syncing nftables rules")
 	errs := 0
+	ticker := time.NewTicker(d.interval)
+	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return ctx.Err()
-		default:
 		}
+
 		if err := d.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
@@ -293,7 +294,12 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		}
 		// garbage collect ip cache entries
 		d.cache.gc()
-		time.Sleep(d.interval)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			continue
+		}
 	}
 }
 

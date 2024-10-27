@@ -71,12 +71,13 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 	}
 	klog.Info("Syncing nftables rules")
 	errs := 0
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return ctx.Err()
-		default:
 		}
+
 		if err := ma.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
@@ -85,7 +86,13 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 		} else {
 			errs = 0
 		}
-		time.Sleep(interval)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			continue
+		}
 	}
 }
 
