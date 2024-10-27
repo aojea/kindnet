@@ -157,13 +157,14 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 	}
 
 	klog.Info("Syncing nftables rules")
+	ticker := time.NewTicker(n.interval)
+	defer ticker.Stop()
 	errs := 0
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return ctx.Err()
-		default:
 		}
+
 		if err := n.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
@@ -172,7 +173,13 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 		} else {
 			errs = 0
 		}
-		time.Sleep(n.interval)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			continue
+		}
 	}
 }
 
