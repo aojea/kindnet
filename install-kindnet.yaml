@@ -91,6 +91,7 @@ spec:
         image: ghcr.io/aojea/kindnetd:v1.6.0
         args:
         - /bin/kindnetd
+        - --hostname-override=$(NODE_NAME)
         - --v=2
         env:
         - name: HOST_IP
@@ -101,6 +102,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         volumeMounts:
         - name: cni-cfg
           mountPath: /etc/cni/net.d
