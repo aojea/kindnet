@@ -35,17 +35,21 @@ import (
 	v1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	utilio "k8s.io/utils/io"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/knftables"
 )
 
+// reference https://coredns.io/plugins/cache/
 const (
-	maxResolvConfLength = 10 * 1 << 20     // 10MB
-	expireTimeout       = 30 * time.Second // same as CoreDNS?
-	tproxyBypassMark    = 12
-	tproxyMark          = 11
-	tproxyTable         = 100
+	maxResolvConfLength = 10 * 1 << 20 // 10MB
+	// same as LocalNodeDNS
+	// https://github.com/kubernetes/dns/blob/c0fa2d1128d42c9b13e08a6a7e3ee8c635b9acd5/cmd/node-cache/Corefile#L3
+	expireTimeout    = 30 * time.Second
+	tproxyBypassMark = 12
+	tproxyMark       = 11
+	tproxyTable      = 100
 	// It was 512 byRFC1035 for UDP until EDNS, but large packets can be fragmented ...
 	// it seems bind uses 1232 as maximum size
 	// https://kb.isc.org/docs/behavior-dig-versions-edns-bufsize
@@ -100,6 +104,7 @@ type ipEntry struct {
 
 type ipCache struct {
 	mu             sync.RWMutex
+	clock          clock.Clock
 	cacheV4Address map[string]ipEntry
 	cacheV6Address map[string]ipEntry
 }
@@ -107,7 +112,7 @@ type ipCache struct {
 func (i *ipCache) add(network string, host string, ips []net.IP) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	now := time.Now()
+	now := i.clock.Now()
 	entry := ipEntry{
 		ts:  now,
 		ips: ips,
@@ -120,31 +125,30 @@ func (i *ipCache) add(network string, host string, ips []net.IP) {
 	}
 }
 
-func (i *ipCache) get(network string, host string, ttl time.Duration) ([]net.IP, bool) {
+func (i *ipCache) get(network string, host string) ([]net.IP, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
 	var entry ipEntry
 	var ok bool
 
-	i.mu.RLock()
 	if network == "ip6" {
 		entry, ok = i.cacheV6Address[host]
 	}
 	if network == "ip4" {
 		entry, ok = i.cacheV4Address[host]
 	}
-	i.mu.RUnlock()
 	if !ok {
 		return nil, false
 	}
 	// check if the entry is still valid
-	if entry.ts.Add(ttl).Before(time.Now()) {
+	if entry.ts.Add(expireTimeout).Before(i.clock.Now()) {
 		i.delete(network, host)
 		return nil, false
 	}
 	return entry.ips, true
 }
+
 func (i *ipCache) delete(network string, host string) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
 	if network == "ip6" {
 		delete(i.cacheV6Address, host)
 	}
@@ -156,16 +160,16 @@ func (i *ipCache) delete(network string, host string) {
 func (i *ipCache) gc() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	now := time.Now()
+	now := i.clock.Now()
 	for host, entry := range i.cacheV4Address {
 		// check if the entry is still valid
-		if entry.ts.Add(ttl).Before(now) {
+		if entry.ts.Add(expireTimeout).Before(now) {
 			i.delete("ip4", host)
 		}
 	}
 	for host, entry := range i.cacheV6Address {
 		// check if the entry is still valid
-		if entry.ts.Add(ttl).Before(now) {
+		if entry.ts.Add(expireTimeout).Before(now) {
 			i.delete("ip6", host)
 		}
 	}
@@ -175,6 +179,7 @@ func newIPCache() *ipCache {
 	return &ipCache{
 		cacheV4Address: map[string]ipEntry{},
 		cacheV6Address: map[string]ipEntry{},
+		clock:          clock.RealClock{},
 	}
 }
 
@@ -471,8 +476,6 @@ func (d *DNSCacheAgent) CleanRules() {
 	}
 }
 
-const ttl = 300
-
 func (d *DNSCacheAgent) dnsPacketRoundTrip(b []byte) []byte {
 	var p dnsmessage.Parser
 	klog.V(7).Info("starting parsing packet")
@@ -610,7 +613,7 @@ func (d *DNSCacheAgent) processDNSRequest(id uint16, q dnsmessage.Question) ([]b
 				dnsmessage.ResourceHeader{
 					Name:  q.Name,
 					Class: q.Class,
-					TTL:   ttl,
+					TTL:   uint32(expireTimeout.Seconds()),
 				},
 				dnsmessage.AResource{
 					A: [4]byte{a[0], a[1], a[2], a[3]},
@@ -641,7 +644,7 @@ func (d *DNSCacheAgent) processDNSRequest(id uint16, q dnsmessage.Question) ([]b
 				dnsmessage.ResourceHeader{
 					Name:  q.Name,
 					Class: q.Class,
-					TTL:   ttl,
+					TTL:   uint32(expireTimeout.Seconds()),
 				},
 				dnsmessage.AAAAResource{
 					AAAA: aaaa,
@@ -677,7 +680,7 @@ func (d *DNSCacheAgent) processDNSRequest(id uint16, q dnsmessage.Question) ([]b
 }
 
 func (d *DNSCacheAgent) lookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
-	ips, ok := d.cache.get(network, host, expireTimeout)
+	ips, ok := d.cache.get(network, host)
 	if ok {
 		klog.V(4).Infof("Cached entries for %s %s : %v", network, host, ips)
 		return ips, nil
