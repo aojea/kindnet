@@ -119,9 +119,11 @@ func (i *ipCache) add(network string, host string, ips []net.IP) {
 	}
 	if network == "ip6" {
 		i.cacheV6Address[host] = entry
+		dnsCacheSize.WithLabelValues("ip6").Set(float64(len(i.cacheV6Address)))
 	}
 	if network == "ip4" {
 		i.cacheV4Address[host] = entry
+		dnsCacheSize.WithLabelValues("ip4").Set(float64(len(i.cacheV4Address)))
 	}
 }
 
@@ -151,9 +153,11 @@ func (i *ipCache) get(network string, host string) ([]net.IP, bool) {
 func (i *ipCache) delete(network string, host string) {
 	if network == "ip6" {
 		delete(i.cacheV6Address, host)
+		dnsCacheSize.WithLabelValues("ip6").Set(float64(len(i.cacheV6Address)))
 	}
 	if network == "ip4" {
 		delete(i.cacheV4Address, host)
+		dnsCacheSize.WithLabelValues("ip4").Set(float64(len(i.cacheV4Address)))
 	}
 }
 
@@ -173,6 +177,8 @@ func (i *ipCache) gc() {
 			i.delete("ip6", host)
 		}
 	}
+	dnsCacheSize.WithLabelValues("ip4").Set(float64(len(i.cacheV4Address)))
+	dnsCacheSize.WithLabelValues("ip6").Set(float64(len(i.cacheV6Address)))
 }
 
 func newIPCache() *ipCache {

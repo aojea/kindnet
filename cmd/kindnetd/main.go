@@ -113,6 +113,9 @@ func main() {
 		utilruntime.HandleError(err)
 	}()
 
+	// add metrics
+	registerMetrics()
+
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
 	if err != nil {
