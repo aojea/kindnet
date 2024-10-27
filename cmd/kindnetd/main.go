@@ -28,7 +28,9 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sys/unix"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	nodeutil "k8s.io/component-helpers/node/util"
 	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
 
@@ -71,6 +73,7 @@ var (
 	masquerading         bool
 	noMasqueradeCIDRs    string
 	controlPlaneEndpoint string
+	metricsBindAddress   string
 )
 
 func init() {
@@ -82,6 +85,7 @@ func init() {
 	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
 	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
+	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":19080", "The IP address and port for the metrics server to serve on")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -102,6 +106,12 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
+
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		err := http.ListenAndServe(metricsBindAddress, nil)
+		utilruntime.HandleError(err)
+	}()
 
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
