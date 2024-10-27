@@ -489,60 +489,69 @@ func (d *DNSCacheAgent) dnsPacketRoundTrip(b []byte) []byte {
 	if err != nil {
 		return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
 	}
-
 	if len(b) > maxDNSSize {
 		return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
 	}
 
-	// Only support 1 question, ref:
-	// https://cs.opensource.google/go/x/net/+/e898025e:dns/dnsmessage/message.go
-	// Multiple questions are valid according to the spec,
-	// but servers don't actually support them. There will
-	// be at most one question here.
 	questions, err := p.AllQuestions()
 	if err != nil {
 		return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
 	}
-	if len(questions) > 1 {
-		return dnsErrorMessage(hdr.ID, dnsmessage.RCodeNotImplemented, dnsmessage.Question{})
-	} else if len(questions) == 0 {
+	if len(questions) == 0 {
 		return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
 	}
-
-	answer, delegate := d.processDNSRequest(hdr.ID, questions[0])
+	// it is supported but not wildly implemented, at least not in golang stdlib
+	if len(questions) > 1 {
+		answer, err := d.passThrough(b)
+		if err != nil {
+			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeServerFailure, questions...)
+		}
+		if len(answer) > maxDNSSize {
+			answer = dnsTruncatedMessage(hdr.ID, questions...)
+		}
+		return answer
+	}
+	question := questions[0]
+	answer, delegate := d.processDNSRequest(hdr.ID, question)
 	// pass it through
 	if delegate {
 		klog.V(7).Info("can not process request, delegating ...")
-		// the dialer overrides the parameters with the upstream dns resolver
-		conn, err := d.resolver.Dial(context.Background(), "network", "address")
+		answer, err = d.passThrough(b)
 		if err != nil {
-			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
+			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeServerFailure, question)
 		}
-		defer conn.Close()
-		_, err = conn.Write(b)
-		if err != nil {
-			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
+		// Return a truncated packet if the answer is too big
+		if len(answer) > maxDNSSize {
+			answer = dnsTruncatedMessage(hdr.ID, question)
 		}
-		buf := make([]byte, maxDNSSize)
-		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // golint: errcheck
-		n, err := conn.Read(buf)
-		if err != nil {
-			klog.Infof("error on UDP connection: %v", err)
-			return dnsErrorMessage(hdr.ID, dnsmessage.RCodeFormatError, dnsmessage.Question{})
-		}
-		answer = buf[:n]
-	}
-
-	// Return a truncated packet if the answer is too big
-	if len(answer) > maxDNSSize {
-		answer = dnsTruncatedMessage(hdr.ID, questions[0])
 	}
 	klog.V(7).Info("answer correct")
 	return answer
 }
 
+func (d *DNSCacheAgent) passThrough(b []byte) ([]byte, error) {
+	buf := make([]byte, maxDNSSize)
+	// the dialer overrides the parameters with the upstream dns resolver
+	conn, err := d.resolver.Dial(context.Background(), "network", "address")
+	if err != nil {
+		return buf, err
+	}
+	defer conn.Close()
+	_, err = conn.Write(b)
+	if err != nil {
+		return buf, err
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // golint: errcheck
+	n, err := conn.Read(buf)
+	if err != nil {
+		klog.Infof("error on UDP connection: %v", err)
+		return buf, err
+	}
+	return buf[:n], nil
+}
+
 // dnsErrorMessage return an encoded dns error message
-func dnsErrorMessage(id uint16, rcode dnsmessage.RCode, q dnsmessage.Question) []byte {
+func dnsErrorMessage(id uint16, rcode dnsmessage.RCode, q ...dnsmessage.Question) []byte {
 	msg := dnsmessage.Message{
 		Header: dnsmessage.Header{
 			ID:            id,
@@ -550,16 +559,16 @@ func dnsErrorMessage(id uint16, rcode dnsmessage.RCode, q dnsmessage.Question) [
 			Authoritative: true,
 			RCode:         rcode,
 		},
-		Questions: []dnsmessage.Question{q},
+		Questions: q,
 	}
 	buf, err := msg.Pack()
 	if err != nil {
-		panic(err)
+		klog.Errorf("SHOULD NOT HAPPEN: can not create dnsErrorMessage: %v", err)
 	}
 	return buf
 }
 
-func dnsTruncatedMessage(id uint16, q dnsmessage.Question) []byte {
+func dnsTruncatedMessage(id uint16, q ...dnsmessage.Question) []byte {
 	msg := dnsmessage.Message{
 		Header: dnsmessage.Header{
 			ID:            id,
@@ -567,11 +576,11 @@ func dnsTruncatedMessage(id uint16, q dnsmessage.Question) []byte {
 			Authoritative: true,
 			Truncated:     true,
 		},
-		Questions: []dnsmessage.Question{q},
+		Questions: q,
 	}
 	buf, err := msg.Pack()
 	if err != nil {
-		panic(err)
+		klog.Errorf("SHOULD NOT HAPPEN: can not create dnsTruncatedMessage: %v", err)
 	}
 	return buf
 }
