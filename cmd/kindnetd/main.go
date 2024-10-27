@@ -22,7 +22,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -30,12 +29,9 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
 	nodeutil "k8s.io/component-helpers/node/util"
 	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -165,7 +161,6 @@ func main() {
 
 	informersFactory := informers.NewSharedInformerFactory(clientset, 0)
 	nodeInformer := informersFactory.Core().V1().Nodes()
-	nodeLister := nodeInformer.Lister()
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
@@ -195,19 +190,33 @@ func main() {
 
 	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
 	useBridge = useBridge || len(os.Getenv("CNI_BRIDGE")) > 0
-	// disable offloading in the bridge if exists
-	disableOffload := false
 	if useBridge {
-		disableOffload = len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0
+		// disable offload if required
+		if len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0 {
+			err = SetChecksumOffloading("kind-br", false, false)
+			if err != nil {
+				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
+			}
+		}
 	}
+
 	// used to track if the cni config inputs changed and write the config
 	cniConfigWriter := &CNIConfigWriter{
 		path:   cniConfigPath,
 		bridge: useBridge,
 		mtu:    mtu,
 	}
-	klog.Infof("Configuring CNI path: %s bridge: %v disableOffload: %v mtu: %d",
-		cniConfigPath, useBridge, disableOffload, mtu)
+	klog.Infof("Configuring CNI path: %s bridge: %v mtu: %d",
+		cniConfigPath, useBridge, mtu)
+
+	// node controller handles CNI config for our own node and routes to the others
+	nodeController := NewNodeController(nodeName, clientset, nodeInformer, cniConfigWriter)
+	go func() {
+		err := nodeController.Run(ctx, 5)
+		if err != nil {
+			klog.Fatalf("error running routes controller: %v", err)
+		}
+	}()
 
 	// create an ipMasqAgent
 	if masquerading {
@@ -264,9 +273,6 @@ func main() {
 		klog.Info("Skipping dnsCacheAgent")
 	}
 
-	// setup nodes reconcile function, closes over arguments
-	reconcileNodes := makeNodesReconciler(cniConfigWriter, hostIP)
-
 	// network policies
 	if networkpolicies {
 		cfg := networkpolicy.Config{
@@ -297,137 +303,16 @@ func main() {
 	}
 	// main control loop
 	informersFactory.Start(ctx.Done())
+	klog.Infof("Kindnetd started successfully")
 
-	for {
-		// Gets the Nodes information from the API
-		// TODO: use a proper controller instead
-		var nodes []*corev1.Node
-		var err error
-		for i := 0; i < 5; i++ {
-			nodes, err = nodeLister.List(labels.Everything())
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to get nodes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Reached maximum retries obtaining node list: " + err.Error())
-		}
-
-		// reconcile the nodes with retries
-		for i := 0; i < 5; i++ {
-			err = reconcileNodes(nodes)
-			if err == nil {
-				break
-			}
-			klog.Infof("Failed to reconcile routes, retrying after error: %v", err)
-			time.Sleep(time.Second * time.Duration(i))
-		}
-		if err != nil {
-			panic("Maximum retries reconciling node routes: " + err.Error())
-		}
-
-		// disable offload if required
-		if disableOffload {
-			err = SetChecksumOffloading("kind-br", false, false)
-			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
-			} else {
-				disableOffload = false
-			}
-		}
-
-		// rate limit
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			time.Sleep(10 * time.Second)
-		}
+	select {
+	case <-signalCh:
+		klog.Infof("Exiting: received signal")
+		cancel()
+	case <-ctx.Done():
 	}
-}
-
-// nodeNodesReconciler returns a reconciliation func for nodes
-func makeNodesReconciler(cniConfig *CNIConfigWriter, hostIP string) func([]*corev1.Node) error {
-	// reconciles a node
-	reconcileNode := func(node *corev1.Node) error {
-		// first get this node's IPs
-		// we don't support more than one IP address per IP family for simplification
-		nodeIPs := internalIPs(node)
-		klog.Infof("Handling node with IPs: %v\n", nodeIPs)
-		// This is our node. We don't need to add routes, but we might need to
-		// update the cni config and "annotate" our external IPs
-		if nodeIPs.Has(hostIP) {
-			klog.Info("handling current node\n")
-			// compute the current cni config inputs
-			if err := cniConfig.Write(
-				ComputeCNIConfigInputs(node),
-			); err != nil {
-				return err
-			}
-			// we're done handling this node
-			return nil
-		}
-
-		podCIDRs := node.Spec.PodCIDRs
-		if len(podCIDRs) == 0 {
-			fmt.Printf("Node %v has no CIDR, ignoring\n", node.Name)
-			return nil
-		}
-		klog.Infof("Node %v has CIDR %s \n", node.Name, podCIDRs)
-		podCIDRsv4, podCIDRsv6 := splitCIDRslice(podCIDRs)
-
-		// obtain the PodCIDR gateway
-		var nodeIPv4, nodeIPv6 string
-		for _, ip := range nodeIPs.UnsortedList() {
-			if isIPv6String(ip) {
-				nodeIPv6 = ip
-			} else {
-				nodeIPv4 = ip
-			}
-		}
-
-		if nodeIPv4 != "" && len(podCIDRsv4) > 0 {
-			if err := syncRoute(nodeIPv4, podCIDRsv4); err != nil {
-				return err
-			}
-		}
-		if nodeIPv6 != "" && len(podCIDRsv6) > 0 {
-			if err := syncRoute(nodeIPv6, podCIDRsv6); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// return a reconciler for all the nodes
-	return func(nodes []*corev1.Node) error {
-		for _, node := range nodes {
-			if err := reconcileNode(node); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// internalIPs returns the internal IP address for node
-func internalIPs(node *corev1.Node) sets.Set[string] {
-	ips := sets.New[string]()
-	// check the node.Status.Addresses
-	for _, address := range node.Status.Addresses {
-		if address.Type == "InternalIP" {
-			ips.Insert(address.Address)
-		}
-	}
-	return ips
-}
-
-// isIPv6String returns if ip is IPv6.
-func isIPv6String(ip string) bool {
-	netIP := net.ParseIP(ip)
-	return netIP != nil && netIP.To4() == nil
+	// Time for gracefully shutdown
+	time.Sleep(1 * time.Second)
 }
 
 func checkHTTP(address string) bool {
