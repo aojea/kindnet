@@ -18,9 +18,12 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -64,13 +67,14 @@ const (
 )
 
 var (
-	useBridge         bool
-	networkpolicies   bool
-	dnsCaching        bool
-	nat64             bool
-	hostnameOverride  string
-	masquerading      bool
-	noMasqueradeCIDRs string
+	useBridge            bool
+	networkpolicies      bool
+	dnsCaching           bool
+	nat64                bool
+	hostnameOverride     string
+	masquerading         bool
+	noMasqueradeCIDRs    string
+	controlPlaneEndpoint string
 )
 
 func init() {
@@ -81,6 +85,7 @@ func init() {
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
 	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
+	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -113,6 +118,24 @@ func main() {
 	// https://kubernetes.io/docs/reference/using-api/api-concepts/#alternate-representations-of-resources
 	config.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
 	config.ContentType = "application/vnd.kubernetes.protobuf"
+
+	// override the internal apiserver endpoint to avoid
+	// waiting for kube-proxy to install the services rules.
+	// If the endpoint is not reachable, fallback the internal endpoint
+	if controlPlaneEndpoint != "" {
+		// check that the apiserver is reachable before continue
+		// to fail fast and avoid waiting until the client operations timeout
+		var ok bool
+		for i := 0; i < 5; i++ {
+			ok = checkHTTP(controlPlaneEndpoint)
+			if ok {
+				config.Host = controlPlaneEndpoint
+				break
+			}
+			klog.Infof("apiserver not reachable, attempt %d ... retrying", i)
+			time.Sleep(time.Second * time.Duration(i))
+		}
+	}
 
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -405,4 +428,29 @@ func internalIPs(node *corev1.Node) sets.Set[string] {
 func isIPv6String(ip string) bool {
 	netIP := net.ParseIP(ip)
 	return netIP != nil && netIP.To4() == nil
+}
+
+func checkHTTP(address string) bool {
+	klog.Infof("probe URL %s", address)
+	tr := &http.Transport{
+		DisableKeepAlives: true,
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   time.Second,
+	}
+
+	resp, err := client.Get(address + "/healthz")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	_, err = io.ReadAll(resp.Body)
+	if err != nil {
+		klog.Infof("error draining the body response: %v", err)
+		return false
+	}
+	return true
 }
