@@ -154,6 +154,16 @@ func main() {
 		))
 	}
 
+	ip, err := netip.ParseAddr(podIP)
+	if err != nil {
+		klog.Fatalf("can not parse ip %s : %v", podIP, err)
+	}
+
+	ipFamily := IPv4Family
+	if ip.Is6() {
+		ipFamily = IPv6Family
+	}
+
 	mtu, err := GetMTU(unix.AF_UNSPEC)
 	klog.Infof("setting mtu %d for CNI \n", mtu)
 	if err != nil {
@@ -195,11 +205,7 @@ func main() {
 	}
 
 	// create an nat64 agent if nat64 is enabled and is an IPv6 only cluster
-	ip, err := netip.ParseAddr(podIP)
-	if err != nil {
-		klog.Fatalf("can not parse ip %s : %v", podIP, err)
-	}
-	if nat64 && ip.Is6() {
+	if nat64 && ipFamily == IPv6Family {
 		klog.Infof("nat64 traffic")
 		nat64Agent, err := NewNAT64Agent()
 		if err != nil {
@@ -218,7 +224,7 @@ func main() {
 
 	// create a dnsCacheAgent
 	// TODO: support IPv6
-	if dnsCaching && !ip.Is6() {
+	if dnsCaching && ipFamily == IPv4Family {
 		klog.Infof("caching DNS cluster traffic")
 		dnsCacheAgent, err := NewDNSCacheAgent(nodeName, nodeInformer)
 		if err != nil {
