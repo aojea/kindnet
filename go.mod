@@ -9,6 +9,7 @@ require (
 	k8s.io/api v0.31.2
 	k8s.io/apimachinery v0.31.2
 	k8s.io/client-go v0.31.2
+	k8s.io/component-base v0.31.1
 	k8s.io/component-helpers v0.31.1
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/knftables v0.0.17
@@ -17,6 +18,7 @@ require (
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
 	github.com/florianl/go-nfqueue v1.3.2 // indirect
@@ -32,6 +34,7 @@ require (
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.60.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	sigs.k8s.io/network-policy-api v0.1.5 // indirect
