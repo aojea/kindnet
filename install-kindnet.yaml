@@ -92,6 +92,7 @@ spec:
         args:
         - /bin/kindnetd
         - --hostname-override=$(NODE_NAME)
+        - --dns-caching=true
         - --v=2
         env:
         - name: HOST_IP

@@ -269,8 +269,6 @@ func main() {
 	}
 
 	// create a dnsCacheAgent
-	// TODO: support IPv6
-	dnsCaching = false // EXPERIMENTAL: it does not work fine
 	if dnsCaching && ipFamily == IPv4Family {
 		klog.Infof("caching DNS cluster traffic")
 		dnsCacheAgent, err := NewDNSCacheAgent(nodeName, nodeInformer)
