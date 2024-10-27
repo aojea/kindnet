@@ -29,6 +29,7 @@ import (
 	"golang.org/x/sys/unix"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
 
 	corev1 "k8s.io/api/core/v1"
@@ -96,13 +97,9 @@ func main() {
 		klog.Infof("FLAG: --%s=%q", flag.Name, flag.Value)
 	})
 
-	var err error
-	nodeName := hostnameOverride
-	if nodeName == "" {
-		nodeName, err = os.Hostname()
-		if err != nil {
-			klog.Fatalf("couldn't determine hostname: %v", err)
-		}
+	nodeName, err := nodeutil.GetHostname(hostnameOverride)
+	if err != nil {
+		panic(err.Error())
 	}
 
 	// create a Kubernetes client
