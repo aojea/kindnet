@@ -68,6 +68,7 @@ const (
 var (
 	useBridge            bool
 	networkpolicies      bool
+	services             bool
 	dnsCaching           bool
 	nat64                bool
 	hostnameOverride     string
@@ -80,6 +81,7 @@ var (
 func init() {
 	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
+	flag.BoolVar(&services, "services", true, "If set, enable Kubernetes Services as kube-proxy replacement (default true)")
 	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
 	flag.BoolVar(&nat64, "nat64", true, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
@@ -286,6 +288,34 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping dnsCacheAgent")
+	}
+
+	// services (kube-proxy replacement)
+	if services {
+		cfg := networkpolicy.Config{
+			FailOpen:            true,
+			QueueID:             102,
+			NodeName:            nodeName,
+			NFTableName:         "kindnet-network-policies",
+			NetfilterBug1766Fix: true,
+		}
+
+		serviceController, err := services.NewController(
+			clientset,
+			informersFactory.Core().V1().Services(),
+			informersFactory.Discovery().V1().EndpointSlices(),
+			nodeInformer,
+			nil,
+			nil,
+			nil,
+			cfg)
+		if err != nil {
+			klog.Infof("Error creating network policy controller: %v, skipping network policies", err)
+		} else {
+			go func() {
+				_ = serviceController.Run(ctx)
+			}()
+		}
 	}
 
 	// network policies
