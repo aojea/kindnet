@@ -1,6 +1,14 @@
-# Simple CNI plugin with IPv4, IPv6 and DualStack support
+# KindNet: A Minimalistic Kubernetes Network Plugin
 
-The main goal of the project is to have a simple CNI plugin for Kubernetes with
+KindNet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
+
+## Goal
+
+Born from years of experience running and debugging complex network issues in Kubernetes, KindNet focuses on providing essential networking functionality without unnecessary complexity. It's opinionated by design, so you can focus on your applications, not your network.
+
+## History
+
+The original goal of the project was to have a simple networking plugin for Kubernetes with
 IPv4 and IPv6 support that provides the [Cluster
 Networking](https://kubernetes.io/docs/concepts/cluster-administration/networking/)
 
@@ -8,60 +16,56 @@ The idea was born because of the lack of IPv6 support in current CNI plugins
 and because there are no automatic alternatives to create a multinode kubernetes
 cluster with IPv6.
 
-The plugin only works on "simple" network environments, when all the cluster nodes
-belong to the same subnet.
-
 Kindnet evolved adding new features, as an embedded ipmasq agent and nowadays, 
 is the default CNI plugin for [KIND](https://github.com/kubernetes-sigs/kind)
+and is used for testing the [Kubernetes project](https://github.com/kubernetes/kubernetes).
 
-All the stable code was moved to the KIND project in-tree.
-This repo is kept only for new features development and for experimenting
+All the stable code moves to the KIND project in-tree.
+This repo is kept only for new features development and get feedback of people
 using it on "real" clusters.
 
+## Features
 
-## Kindnet components
+* Minimalistic design: Focuses on core networking essentials.
+* High performance: Low overhead for optimal network throughput.
+* Scalability: Handles growing clusters with ease.
+* Simplicity: Easy to set up and configure.
+* Just works: Provides reliable and seamless networking for your pods.
 
-It uses the following [standard CNI
-plugins](https://github.com/containernetworking/plugins)
+## Use Cases
 
-* `ptp`: creates a veth pair and adds the host and the container to it.
-* `bridge`: creates a bridge, adds the host and the container to it.
-* `host-local`: maintains a local database of allocated IPs. It uses the
-  `ipRanges` capability to provide dynamic configuration for the Pods subnets.
-* `portmap`: An iptables-based portmapping plugin. Maps ports from the host's
-  address space to the container.
+* Resource-constrained environments: Ideal for small deployments or edge computing.
+* Performance-critical applications: Minimizes network latency for demanding workloads.
+* Development and testing: Provides a simple and reliable network for Kubernetes testing.
+* Learning Kubernetes networking: A great tool for understanding the basics of Kubernetes networking.
 
-And a daemon named `kindnetd` with the following features:
+## How it Works
 
-* `CNI config`: configures the CNI plugin dropping the file `/etc/cni/net.d/10-kindnet.conflist`
-* `routing`: install routes on the to the POD subnets in the other nodes
-* `ip-masq`: non masquerade traffic that is directed to PODs 
+KindNet uses a simple bridge network to connect pods within the same node.  It leverages the host's network stack for external communication, eliminating the need for complex overlay networks.
 
 ## Installation
 
 Kindnet can be installed on your cluster using the manifest [install-kindnet.yaml](install-kindnet.yaml)
 
-`kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml`
+```sh
+kubectl create -f
+https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml
+```
 
 By default, the `ptp` CNI plugin is used, but the `bridge` plugin can be selected by setting the environment
 variable `CNI_BRIDGE` in the `kindnet-cni` container. You can use the following manifest directly:
 
-`kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet-bridge.yaml`
-
-
-Kindnet installation manifest has an init container that drop the CNI binaries in the folder `/opt/cni/bin/`, however, you can install them directly supressing the init container in the manifest and
-following the next steps:
-
 ```sh
-export ARCH="amd64"
-export CNI_VERSION="v1.1.1"
-export CNI_TARBALL="${CNI_VERSION}/cni-plugins-linux-${ARCH}-${CNI_VERSION}.tgz"
-export CNI_URL="https://github.com/containernetworking/plugins/releases/download/${CNI_TARBALL}"
-curl -sSL --retry 5 --output /tmp/cni.tgz "${CNI_URL}"
-mkdir -p /opt/cni/bin
-tar -C /opt/cni/bin -xzf /tmp/cni.tgz
-rm -rf /tmp/cni.tgz
+kubectl create -f
+https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet-bridge.yaml
 ```
 
+## Contributing
+ 
+Please report any issues in the Github project.
+The bar for new features is really high and has to be stricted aligned with the [Goal](#goal) of the project.
+Per example, adding networking overlay functionality is out of the scope of the project.
+
+## License
+
+KindNet is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
