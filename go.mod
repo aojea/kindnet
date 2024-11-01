@@ -3,6 +3,7 @@ module sigs.k8s.io/kind/images/kindnetd
 go 1.23
 
 require (
+	github.com/containerd/nri v0.7.1-0.20241031201336-6d486acd3f71
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
@@ -20,6 +21,8 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/containerd/log v0.1.0 // indirect
+	github.com/containerd/ttrpc v1.2.6-0.20240827082320-b5cd6e4b3287 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
 	github.com/florianl/go-nfqueue v1.3.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
@@ -31,12 +34,17 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
+	github.com/opencontainers/runtime-spec v1.0.3-0.20220825212826-86290f6a00fb // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
 	github.com/prometheus/common v0.60.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/sync v0.8.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240701130421-f6361c86f094 // indirect
+	google.golang.org/grpc v1.65.0 // indirect
+	k8s.io/cri-api v0.25.3 // indirect
 	sigs.k8s.io/network-policy-api v0.1.5 // indirect
 )
 
