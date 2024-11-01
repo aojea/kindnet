@@ -1,4 +1,4 @@
-name: e2e
+name: release
 
 on:
   push:
