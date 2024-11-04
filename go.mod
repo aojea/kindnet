@@ -3,7 +3,7 @@ module sigs.k8s.io/kind/images/kindnetd
 go 1.23
 
 require (
-	github.com/containerd/nri v0.7.1-0.20241031201336-6d486acd3f71
+	github.com/containerd/nri v0.8.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
