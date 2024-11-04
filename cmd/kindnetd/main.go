@@ -238,7 +238,7 @@ func main() {
 
 	// create an nat64 agent if nat64 is enabled and is an IPv6 only cluster
 	if nat64 && ipFamily == IPv6Family {
-		klog.Infof("nat64 traffic")
+		klog.Infof("detected IPv6; starting nat64 agent")
 		nat64Agent, err := NewNAT64Agent()
 		if err != nil {
 			klog.Fatalf("error creating nat64 agent: %v", err)
