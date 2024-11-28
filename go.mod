@@ -14,7 +14,7 @@ require (
 	k8s.io/component-helpers v0.31.1
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/knftables v0.0.17
-	sigs.k8s.io/kube-network-policies v0.6.1-0.20241023163654-4320aa92e3f0
+	sigs.k8s.io/kube-network-policies v0.6.1
 )
 
 require (
