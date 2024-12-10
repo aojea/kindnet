@@ -50,5 +50,7 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
+        tags: |
+          ${{ steps.meta.outputs.tags }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:stable
         labels: ${{ steps.meta.outputs.labels }}
