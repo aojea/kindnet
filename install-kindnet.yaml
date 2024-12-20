@@ -81,14 +81,14 @@ spec:
       serviceAccountName: kindnet
       initContainers:
       - name: install-cni-bin
-        image: ghcr.io/aojea/kindnetd:v1.7.0
-        command: ['sh', '-c', 'cd /opt/cni/bin; for i in * ; do cat $i > /cni/$i ; chmod +x /cni/$i ; done']
+        image: ghcr.io/aojea/kindnetd:stable
+        command: ['sh', '-c', 'cd /opt/cni/bin; cat cni-kindnet > /cni/cni-kindnet ; chmod +x /cni/cni-kindnet']
         volumeMounts:
         - name: cni-bin
           mountPath: /cni
       containers:
       - name: kindnet-cni
-        image: ghcr.io/aojea/kindnetd:v1.7.0
+        image: ghcr.io/aojea/kindnetd:stable
         args:
         - /bin/kindnetd
         - --hostname-override=$(NODE_NAME)
