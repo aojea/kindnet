@@ -6,7 +6,6 @@ require (
 	github.com/containerd/nri v0.9.0
 	github.com/containernetworking/cni v1.2.3
 	github.com/containernetworking/plugins v1.6.1
-	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
 	k8s.io/api v0.32.0

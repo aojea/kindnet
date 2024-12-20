@@ -188,29 +188,8 @@ func main() {
 		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
 	}
 
-	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	useBridge = useBridge || len(os.Getenv("CNI_BRIDGE")) > 0
-	if useBridge {
-		// disable offload if required
-		if len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0 {
-			err = SetChecksumOffloading("kind-br", false, false)
-			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
-			}
-		}
-	}
-
-	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &CNIConfigWriter{
-		path:   cniConfigPath,
-		bridge: useBridge,
-		mtu:    mtu,
-	}
-	klog.Infof("Configuring CNI path: %s bridge: %v mtu: %d",
-		cniConfigPath, useBridge, mtu)
-
 	// node controller handles CNI config for our own node and routes to the others
-	nodeController := NewNodeController(nodeName, clientset, nodeInformer, cniConfigWriter)
+	nodeController := NewNodeController(nodeName, clientset, nodeInformer)
 	go func() {
 		err := nodeController.Run(ctx, 5)
 		if err != nil {
@@ -305,6 +284,11 @@ func main() {
 	// main control loop
 	informersFactory.Start(ctx.Done())
 	klog.Infof("Kindnetd started successfully")
+	// once kindnet is ready we can write the CNI config to indicate the network is ready
+	err = WriteCNIConfig()
+	if err != nil {
+		klog.Fatalf("unable to write CNI config file: %v", err)
+	}
 
 	select {
 	case <-signalCh:
