@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: "1.22.3"
-  K8S_VERSION: "v1.31.0"
-  KIND_VERSION: "v0.24.0"
+  GO_VERSION: "1.23"
+  K8S_VERSION: "v1.32.0"
+  KIND_VERSION: "v0.26.0"
   KIND_CLUSTER_NAME: "kindnet"
   REGISTRY: ghcr.io
   IMAGE_NAME: aojea/kindnetd
