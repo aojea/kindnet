@@ -1,0 +1,57 @@
+name: Deployment to GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main 
+    paths: 
+      - 'site/**'
+      - '.github/workflows/deploy-github-pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/deploy-github-pages.yml'
+
+permissions:
+  contents: write
+
+env:
+  REPO_NAME: ${{ github.event.repository.name }}
+  REPO_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0         # Fetch all history for .GitInfo and .Lastmod
+
+      - name: Setup Hugo
+        uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: '0.125.5'
+          extended: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          check-latest: true
+
+      - run: |
+          npm init --yes
+          npm install --save-dev autoprefixer postcss-cli
+        working-directory: ./site
+
+      - run: hugo --baseURL https://${REPO_OWNER}.github.io/${REPO_NAME} --minify
+        working-directory: ./site
+
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
+        if: ${{ github.ref == 'refs/heads/main' }}
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site/public

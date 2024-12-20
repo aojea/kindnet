@@ -1,6 +1,7 @@
-+++
-date = '2024-11-01T15:35:54Z'
-title = 'About'
-+++
+---
+title: kindnet
+weight: 1150
+
+---
 
 KindNet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
