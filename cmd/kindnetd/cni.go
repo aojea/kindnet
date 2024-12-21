@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math"
@@ -162,12 +163,13 @@ func (a *Allocator) Release(ip netip.Addr) {
 /* cni config management */
 
 type CNIServer struct {
-	ranges   []net.IPNet
-	listener net.Listener
-	mtu      int
+	allocatorV4 []*Allocator
+	allocatorV6 []*Allocator
+	listener    net.Listener
+	mtu         int
 }
 
-func NewCNIServer(ranges []net.IPNet) (*CNIServer, error) {
+func NewCNIServer(ranges []string) (*CNIServer, error) {
 	listener, err := net.Listen("unix", apis.SocketPath)
 	if err != nil {
 		return nil, err
@@ -180,20 +182,62 @@ func NewCNIServer(ranges []net.IPNet) (*CNIServer, error) {
 		}
 	}
 
-	return &CNIServer{
+	c := &CNIServer{
 		listener: listener,
-		ranges:   ranges,
 		mtu:      mtu,
-	}, nil
+	}
+
+	for _, cidr := range ranges {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, err
+		}
+		allocator, err := NewAllocator(prefix, 8)
+		if err != nil {
+			return nil, err
+		}
+		if prefix.Addr().Is4() {
+			c.allocatorV4 = append(c.allocatorV4, allocator)
+		} else {
+			c.allocatorV6 = append(c.allocatorV6, allocator)
+		}
+	}
+
+	return c, nil
 }
 
 func (c *CNIServer) Run(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
-
+		result := apis.NetworkConfig{
+			MTU: c.mtu,
+		}
+		for _, v4alloc := range c.allocatorV4 {
+			addr, err := v4alloc.Allocate()
+			if err != nil {
+				continue
+			}
+			result.IPs = append(result.IPs, addr.String())
+			break
+		}
+		for _, v6alloc := range c.allocatorV6 {
+			addr, err := v6alloc.Allocate()
+			if err != nil {
+				continue
+			}
+			result.IPs = append(result.IPs, addr.String())
+			break
+		}
+		out, err := json.Marshal(result)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(out)
 	})
 
-	go http.Serve(c.listener, mux)
+	http.Serve(c.listener, mux)
 }
 
 // GetMTU returns the MTU used for the IP family
