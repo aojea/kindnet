@@ -242,6 +242,27 @@ func (c *CNIServer) Run(ctx context.Context) error {
 		}
 	}
 
+	// populat the allocators if there were already Pods running
+	ips, err := getPodsIPs()
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		address, err := netip.ParseAddr(ip)
+		if err != nil {
+			return err
+		}
+		if address.Is4() {
+			for _, alloc := range c.allocatorV4 {
+				_ = alloc.AllocateAddress(address)
+			}
+		} else {
+			for _, alloc := range c.allocatorV6 {
+				_ = alloc.AllocateAddress(address)
+			}
+		}
+
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
 		result := apis.NetworkConfig{
