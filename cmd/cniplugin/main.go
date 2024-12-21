@@ -232,7 +232,7 @@ func main() {
 	skel.PluginMainFuncs(skel.CNIFuncs{
 		Add: cmdAdd,
 		Del: cmdDel,
-	}, version.All, fmt.Sprintf("CNI plugin kindnet v0.1"))
+	}, version.All, "CNI plugin kindnet v0.1")
 }
 
 func getInterfaceName() string {
