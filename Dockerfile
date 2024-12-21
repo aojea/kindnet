@@ -11,9 +11,9 @@ COPY . .
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /go/bin/kindnetd ./cmd/kindnetd
 # Install CNI plugins
-RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /go/bin/cni-kindnet ./cmd/cni-kindnet
+RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /go/bin/cni-kindnet ./cmd/cniplugin
 # STEP 2: Build small image
-FROM registry.k8s.io/build-image/distroless-iptables:v0.6.2
+FROM registry.k8s.io/build-image/distroless-iptables:v0.6.5
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /go/bin/cni-kindnet /opt/cni/cni-kindnet
 CMD ["/bin/kindnetd"]
