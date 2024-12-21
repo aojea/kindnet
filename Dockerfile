@@ -15,5 +15,5 @@ RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /go/bin/cni-kindnet ./cmd/cnipl
 # STEP 2: Build small image
 FROM registry.k8s.io/build-image/distroless-iptables:v0.6.5
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
-COPY --from=builder --chown=root:root /go/bin/cni-kindnet /opt/cni/cni-kindnet
+COPY --from=builder --chown=root:root /go/bin/cni-kindnet /opt/cni/bin/cni-kindnet
 CMD ["/bin/kindnetd"]
