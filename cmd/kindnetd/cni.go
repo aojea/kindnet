@@ -395,7 +395,7 @@ const (
 func WriteCNIConfig() (err error) {
 	cniFile := filepath.Join(cniConfigPath, cniConfigFile)
 	_ = os.Remove(cniFile)
-	err = os.WriteFile(cniConfigFile, []byte(cniConfig), 0644)
+	err = os.WriteFile(cniFile, []byte(cniConfig), 0644)
 	if err != nil {
 		_ = os.Remove(cniFile)
 		return err
