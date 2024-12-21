@@ -16,11 +16,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/aojea/kindnet/pkg/apis"
 
 	"github.com/vishvananda/netlink"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 )
 
 type Allocator struct {
@@ -167,13 +173,18 @@ type CNIServer struct {
 	allocatorV6 []*Allocator
 	listener    net.Listener
 	mtu         int
+
+	nodeName    string
+	nodeLister  corelisters.NodeLister
+	nodesSynced cache.InformerSynced
 }
 
-func NewCNIServer(ranges []string) (*CNIServer, error) {
+func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CNIServer, error) {
 	listener, err := net.Listen("unix", apis.SocketPath)
 	if err != nil {
 		return nil, err
 	}
+
 	mtu, err := GetMTU(netlink.FAMILY_V4)
 	if err != nil {
 		mtu, err = GetMTU(netlink.FAMILY_V6)
@@ -183,18 +194,46 @@ func NewCNIServer(ranges []string) (*CNIServer, error) {
 	}
 
 	c := &CNIServer{
-		listener: listener,
-		mtu:      mtu,
+		nodeName:    nodeName,
+		nodeLister:  nodeInformer.Lister(),
+		nodesSynced: nodeInformer.Informer().HasSynced,
+		listener:    listener,
+		mtu:         mtu,
+	}
+
+	return c, nil
+}
+
+func (c *CNIServer) Run(ctx context.Context) error {
+
+	if ok := cache.WaitForCacheSync(ctx.Done(), c.nodesSynced); !ok {
+		return fmt.Errorf("failed to wait for caches to sync")
+	}
+
+	var ranges []string
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (done bool, err error) {
+		node, err := c.nodeLister.Get(c.nodeName)
+		if err != nil || node == nil {
+			return false, nil
+		}
+		if len(node.Spec.PodCIDRs) > 0 {
+			ranges = node.Spec.PodCIDRs
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
 	}
 
 	for _, cidr := range ranges {
 		prefix, err := netip.ParsePrefix(cidr)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		allocator, err := NewAllocator(prefix, 8)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if prefix.Addr().Is4() {
 			c.allocatorV4 = append(c.allocatorV4, allocator)
@@ -203,10 +242,6 @@ func NewCNIServer(ranges []string) (*CNIServer, error) {
 		}
 	}
 
-	return c, nil
-}
-
-func (c *CNIServer) Run(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
 		result := apis.NetworkConfig{
@@ -237,7 +272,12 @@ func (c *CNIServer) Run(ctx context.Context) {
 		w.Write(out)
 	})
 
-	http.Serve(c.listener, mux)
+	err = WriteCNIConfig()
+	if err != nil {
+		klog.Fatalf("unable to write CNI config file: %v", err)
+	}
+
+	return http.Serve(c.listener, mux)
 }
 
 // GetMTU returns the MTU used for the IP family
