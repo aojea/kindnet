@@ -3,29 +3,197 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"math"
+	"math/big"
+	"math/rand/v2"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
+
+	"github.com/aojea/kindnet/pkg/apis"
 
 	"github.com/vishvananda/netlink"
-	clientset "k8s.io/client-go/kubernetes"
-	corelisters "k8s.io/client-go/listers/core/v1"
-	"k8s.io/client-go/tools/cache"
-	"k8s.io/client-go/util/workqueue"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
+
+type Allocator struct {
+	mu       sync.Mutex
+	cidr     netip.Prefix
+	store    sets.Set[netip.Addr]
+	ipFirst  netip.Addr
+	ipLast   netip.Addr
+	size     uint64
+	reserved int // reserve first number of address
+}
+
+func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
+	var size uint64
+	hostsBits := cidr.Addr().BitLen() - cidr.Bits()
+	if hostsBits > 64 {
+		size = math.MaxUint64
+	} else {
+		size = uint64(1) << uint(hostsBits)
+	}
+	if size < uint64(reserved) {
+		return nil, fmt.Errorf("range too short")
+	}
+	// Caching the first, offset and last addresses allows to optimize
+	// the search loops by using the netip.Addr iterator instead
+	// of having to do conversions with IP addresses.
+	// Don't allocate the network's ".0" address.
+	ipFirst := cidr.Masked().Addr().Next()
+	// Don't allocate in the reserved zone
+	ipFirst, err := addOffsetAddress(ipFirst, uint64(reserved))
+	if err != nil {
+		return nil, err
+	}
+	// Use the broadcast address as last address for IPv6
+	ipLast, err := broadcastAddress(cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Allocator{
+		cidr:     cidr,
+		size:     size,
+		reserved: reserved,
+		store:    sets.Set[netip.Addr]{},
+		ipFirst:  ipFirst,
+		ipLast:   ipLast,
+	}, nil
+}
+
+// IP iterator allows to iterate over all the IP addresses
+// in a range defined by the start and last address.
+// It starts iterating at the address position defined by the offset.
+// It returns an invalid address to indicate it has finished.
+func ipIterator(first netip.Addr, last netip.Addr, offset uint64) func() netip.Addr {
+	// There are no modulo operations for IP addresses
+	modulo := func(addr netip.Addr) netip.Addr {
+		if addr.Compare(last) == 1 {
+			return first
+		}
+		return addr
+	}
+	next := func(addr netip.Addr) netip.Addr {
+		return modulo(addr.Next())
+	}
+	start, err := addOffsetAddress(first, offset)
+	if err != nil {
+		return func() netip.Addr { return netip.Addr{} }
+	}
+	start = modulo(start)
+	ip := start
+	seen := false
+	return func() netip.Addr {
+		value := ip
+		// is the last or the first iteration
+		if value == start {
+			if seen {
+				return netip.Addr{}
+			}
+			seen = true
+		}
+		ip = next(ip)
+		return value
+	}
+}
+
+func (a *Allocator) Allocate() (netip.Addr, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	rangeSize := a.size - uint64(a.reserved)
+	var offset uint64
+	switch {
+	case rangeSize >= math.MaxInt64:
+		offset = rand.Uint64()
+	case rangeSize == 0:
+		return netip.Addr{}, fmt.Errorf("not available addresses")
+	default:
+		offset = uint64(rand.Int64N(int64(rangeSize)))
+	}
+
+	iterator := ipIterator(a.ipFirst, a.ipLast, offset)
+	for {
+		ip := iterator()
+		if !ip.IsValid() {
+			break
+		}
+		// IP already exist
+		if a.store.Has(ip) {
+			continue
+		}
+		a.store.Insert(ip)
+		return ip, nil
+
+	}
+	return netip.Addr{}, fmt.Errorf("allocator full")
+}
+
+func (a *Allocator) AllocateAddress(ip netip.Addr) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.cidr.Contains(ip) {
+		return fmt.Errorf("address %s out of range %s", ip.String(), a.cidr.String())
+	}
+	if a.store.Has(ip) {
+		return fmt.Errorf("address %s allready allocated", ip.String())
+	}
+	if a.ipFirst.Compare(ip) == 1 {
+		return fmt.Errorf("address %s on the reserved space, lower than %s", ip.String(), a.ipFirst.String())
+	}
+	a.store.Insert(ip)
+	return nil
+}
+
+func (a *Allocator) Release(ip netip.Addr) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.store, ip)
+}
 
 /* cni config management */
 
-type CNIController struct {
-	nodeName string
+type CNIServer struct {
+	ranges   []net.IPNet
+	listener net.Listener
+	mtu      int
+}
 
-	client    clientset.Interface
-	workqueue workqueue.TypedRateLimitingInterface[string]
+func NewCNIServer(ranges []net.IPNet) (*CNIServer, error) {
+	listener, err := net.Listen("unix", apis.SocketPath)
+	if err != nil {
+		return nil, err
+	}
+	mtu, err := GetMTU(netlink.FAMILY_V4)
+	if err != nil {
+		mtu, err = GetMTU(netlink.FAMILY_V6)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	nodeLister  corelisters.NodeLister
-	nodesSynced cache.InformerSynced
+	return &CNIServer{
+		listener: listener,
+		ranges:   ranges,
+		mtu:      mtu,
+	}, nil
+}
+
+func (c *CNIServer) Run(ctx context.Context) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
+
+	})
+
+	go http.Serve(c.listener, mux)
 }
 
 // GetMTU returns the MTU used for the IP family
@@ -138,4 +306,56 @@ func WriteCNIConfig() (err error) {
 	}
 
 	return os.Rename(tmpName, filepath.Join(cniConfigPath, cniConfigFile))
+}
+
+// broadcastAddress returns the broadcast address of the subnet
+// The broadcast address is obtained by setting all the host bits
+// in a subnet to 1.
+// network 192.168.0.0/24 : subnet bits 24 host bits 32 - 24 = 8
+// broadcast address 192.168.0.255
+func broadcastAddress(subnet netip.Prefix) (netip.Addr, error) {
+	base := subnet.Masked().Addr()
+	bytes := base.AsSlice()
+	// get all the host bits from the subnet
+	n := 8*len(bytes) - subnet.Bits()
+	// set all the host bits to 1
+	for i := len(bytes) - 1; i >= 0 && n > 0; i-- {
+		if n >= 8 {
+			bytes[i] = 0xff
+			n -= 8
+		} else {
+			mask := ^uint8(0) >> (8 - n)
+			bytes[i] |= mask
+			break
+		}
+	}
+
+	addr, ok := netip.AddrFromSlice(bytes)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", bytes)
+	}
+	return addr, nil
+}
+
+// addOffsetAddress returns the address at the provided offset within the subnet
+// TODO: move it to k8s.io/utils/net, this is the same as current AddIPOffset()
+// but using netip.Addr instead of net.IP
+func addOffsetAddress(address netip.Addr, offset uint64) (netip.Addr, error) {
+	addressBytes := address.AsSlice()
+	addressBig := big.NewInt(0).SetBytes(addressBytes)
+	r := big.NewInt(0).Add(addressBig, big.NewInt(int64(offset))).Bytes()
+	// r must be 4 or 16 bytes depending of the ip family
+	// bigInt conversion to bytes will not take this into consideration
+	// and drop the leading zeros, so we have to take this into account.
+	lenDiff := len(addressBytes) - len(r)
+	if lenDiff > 0 {
+		r = append(make([]byte, lenDiff), r...)
+	} else if lenDiff < 0 {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", r)
+	}
+	addr, ok := netip.AddrFromSlice(r)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", r)
+	}
+	return addr, nil
 }
