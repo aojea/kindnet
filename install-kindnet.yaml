@@ -82,7 +82,7 @@ spec:
       initContainers:
       - name: install-cni-bin
         image: ghcr.io/aojea/kindnetd:stable
-        command: ['sh', '-c', 'cd /opt/cni/bin; cat cni-kindnet > /cni/cni-kindnet ; chmod +x /cni/cni-kindnet']
+        command: ['sh', '-c', 'cat /opt/cni/bin/cni-kindnet > /cni/cni-kindnet ; chmod +x /cni/cni-kindnet']
         volumeMounts:
         - name: cni-bin
           mountPath: /cni
