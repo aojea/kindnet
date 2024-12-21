@@ -180,6 +180,8 @@ type CNIServer struct {
 }
 
 func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CNIServer, error) {
+	// remove the socket in case we didn't deleted on termination
+	_ = os.Remove(apis.SocketPath)
 	listener, err := net.Listen("unix", apis.SocketPath)
 	if err != nil {
 		return nil, err
@@ -205,7 +207,7 @@ func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CN
 }
 
 func (c *CNIServer) Run(ctx context.Context) error {
-
+	defer c.listener.Close()
 	if ok := cache.WaitForCacheSync(ctx.Done(), c.nodesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}

@@ -131,4 +131,5 @@ spec:
       - name: run
         hostPath:
           path: /run
+          type: DirectoryOrCreate
 ---
