@@ -281,14 +281,18 @@ func main() {
 			}()
 		}
 	}
+
+	cniServer, err := NewCNIServer(nodeName, nodeInformer)
+	if err != nil {
+		klog.Fatalf("error creating cni server : %v", err)
+	}
+	go func() {
+		_ = cniServer.Run(ctx)
+	}()
+
 	// main control loop
 	informersFactory.Start(ctx.Done())
 	klog.Infof("Kindnetd started successfully")
-	// once kindnet is ready we can write the CNI config to indicate the network is ready
-	err = WriteCNIConfig()
-	if err != nil {
-		klog.Fatalf("unable to write CNI config file: %v", err)
-	}
 
 	select {
 	case <-signalCh:

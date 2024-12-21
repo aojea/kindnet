@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -42,13 +43,13 @@ func getPodsIPs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	sandboxes, err := client.ListPodSandbox(nil)
+	sandboxes, err := client.ListPodSandbox(context.Background(), nil)
 	if err != nil {
 		return nil, err
 	}
 	ips := sets.Set[string]{}
 	for _, sandbox := range sandboxes {
-		status, err := client.PodSandboxStatus(sandbox.Id, false)
+		status, err := client.PodSandboxStatus(context.Background(), sandbox.Id, false)
 		if err != nil {
 			return nil, err
 		}
