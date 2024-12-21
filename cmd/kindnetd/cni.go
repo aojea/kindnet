@@ -292,7 +292,11 @@ func (c *CNIServer) Run(ctx context.Context) error {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(out)
+		_, err = w.Write(out)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	})
 
 	err = WriteCNIConfig()
