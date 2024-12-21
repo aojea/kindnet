@@ -393,31 +393,14 @@ const (
 )
 
 func WriteCNIConfig() (err error) {
-	f, err := os.CreateTemp("", cniConfigFile)
+	cniFile := filepath.Join(cniConfigPath, cniConfigFile)
+	_ = os.Remove(cniFile)
+	err = os.WriteFile(cniConfigFile, []byte(cniConfig), 0644)
 	if err != nil {
+		_ = os.Remove(cniFile)
 		return err
 	}
-
-	tmpName := f.Name()
-	defer func() {
-		if err != nil {
-			f.Close()
-			os.Remove(tmpName)
-		}
-	}()
-
-	if _, err := f.WriteString(cniConfig); err != nil {
-		return err
-	}
-
-	if err := f.Sync(); err != nil {
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	return os.Rename(tmpName, filepath.Join(cniConfigPath, cniConfigFile))
+	return nil
 }
 
 // broadcastAddress returns the broadcast address of the subnet
