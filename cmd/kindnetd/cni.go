@@ -208,7 +208,7 @@ func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CN
 
 func (c *CNIServer) Run(ctx context.Context) error {
 	defer c.listener.Close()
-	if ok := cache.WaitForCacheSync(ctx.Done(), c.nodesSynced); !ok {
+	if ok := cache.WaitForNamedCacheSync("kindnet-cni", ctx.Done(), c.nodesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -304,6 +304,7 @@ func (c *CNIServer) Run(ctx context.Context) error {
 		klog.Fatalf("unable to write CNI config file: %v", err)
 	}
 
+	klog.Infof("CNI server listening on %s", apis.SocketPath)
 	return http.Serve(c.listener, mux)
 }
 
