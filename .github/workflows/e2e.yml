@@ -56,9 +56,8 @@ jobs:
       fail-fast: false
       matrix:
         ipFamily: ["ipv4", "ipv6", "dual"]
-        cniMode: ["ptp"]
     env:
-      JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}-${{ matrix.cniMode }}"
+      JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}"
       IP_FAMILY: ${{ matrix.ipFamily }}
     steps:
     - name: Check out code
@@ -120,17 +119,10 @@ jobs:
         docker load --input kindnetd-image.tar
         /usr/local/bin/kind load docker-image ghcr.io/aojea/kindnetd:test --name ${{ env.KIND_CLUSTER_NAME}}
 
-    - name: install ptp plugin
-      if: ${{ matrix.cniMode == 'ptp' }}
+    - name: install kindnet
       run: |
         sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
-
-    - name: install bridge plugin
-      if: ${{ matrix.cniMode == 'bridge' }}
-      run: |
-        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet-bridge.yaml
-        /usr/local/bin/kubectl apply -f ./install-kindnet-bridge.yaml
 
     - name: Get Cluster status
       run: |
