@@ -53,9 +53,13 @@ func getPodsIPs() ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		ips.Insert(status.Status.Network.Ip)
+		if len(status.Status.Network.Ip) > 0 {
+			ips.Insert(status.Status.Network.Ip)
+		}
 		for _, podip := range status.Status.Network.AdditionalIps {
-			ips.Insert(podip.String())
+			if len(podip.String()) > 0 {
+				ips.Insert(podip.String())
+			}
 		}
 	}
 	return ips.UnsortedList(), nil

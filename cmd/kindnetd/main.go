@@ -287,7 +287,10 @@ func main() {
 		klog.Fatalf("error creating cni server : %v", err)
 	}
 	go func() {
-		_ = cniServer.Run(ctx)
+		err = cniServer.Run(ctx)
+		if err != nil && ctx.Err() == nil {
+			klog.Fatalf("can not run CNI server: %v", err)
+		}
 	}()
 
 	// main control loop
