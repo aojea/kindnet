@@ -109,6 +109,8 @@ spec:
         volumeMounts:
         - name: cni-cfg
           mountPath: /etc/cni/net.d
+        - name: run
+          mountPath: /run
         resources:
           requests:
             cpu: "100m"
@@ -126,4 +128,7 @@ spec:
         hostPath:
           path: /etc/cni/net.d
           type: DirectoryOrCreate
+      - name: run
+        hostPath:
+          path: /run
 ---
