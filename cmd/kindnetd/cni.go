@@ -3,61 +3,309 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log"
+	"math"
+	"math/big"
+	"math/rand/v2"
 	"net"
+	"net/http"
+	"net/netip"
 	"os"
-	"reflect"
-	"text/template"
+	"path/filepath"
+	"sync"
+	"time"
 
-	"github.com/pkg/errors"
+	"github.com/aojea/kindnet/pkg/apis"
+
 	"github.com/vishvananda/netlink"
-
-	corev1 "k8s.io/api/core/v1"
-	utilsnet "k8s.io/utils/net"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
+	coreinformers "k8s.io/client-go/informers/core/v1"
+	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 )
+
+type Allocator struct {
+	mu       sync.Mutex
+	cidr     netip.Prefix
+	store    sets.Set[netip.Addr]
+	ipFirst  netip.Addr
+	ipLast   netip.Addr
+	size     uint64
+	reserved int // reserve first number of address
+}
+
+func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
+	var size uint64
+	hostsBits := cidr.Addr().BitLen() - cidr.Bits()
+	if hostsBits > 64 {
+		size = math.MaxUint64
+	} else {
+		size = uint64(1) << uint(hostsBits)
+	}
+	if size < uint64(reserved) {
+		return nil, fmt.Errorf("range too short")
+	}
+	// Caching the first, offset and last addresses allows to optimize
+	// the search loops by using the netip.Addr iterator instead
+	// of having to do conversions with IP addresses.
+	// Don't allocate the network's ".0" address.
+	ipFirst := cidr.Masked().Addr().Next()
+	// Don't allocate in the reserved zone
+	ipFirst, err := addOffsetAddress(ipFirst, uint64(reserved))
+	if err != nil {
+		return nil, err
+	}
+	// Use the broadcast address as last address for IPv6
+	ipLast, err := broadcastAddress(cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Allocator{
+		cidr:     cidr,
+		size:     size,
+		reserved: reserved,
+		store:    sets.Set[netip.Addr]{},
+		ipFirst:  ipFirst,
+		ipLast:   ipLast,
+	}, nil
+}
+
+// IP iterator allows to iterate over all the IP addresses
+// in a range defined by the start and last address.
+// It starts iterating at the address position defined by the offset.
+// It returns an invalid address to indicate it has finished.
+func ipIterator(first netip.Addr, last netip.Addr, offset uint64) func() netip.Addr {
+	// There are no modulo operations for IP addresses
+	modulo := func(addr netip.Addr) netip.Addr {
+		if addr.Compare(last) == 1 {
+			return first
+		}
+		return addr
+	}
+	next := func(addr netip.Addr) netip.Addr {
+		return modulo(addr.Next())
+	}
+	start, err := addOffsetAddress(first, offset)
+	if err != nil {
+		return func() netip.Addr { return netip.Addr{} }
+	}
+	start = modulo(start)
+	ip := start
+	seen := false
+	return func() netip.Addr {
+		value := ip
+		// is the last or the first iteration
+		if value == start {
+			if seen {
+				return netip.Addr{}
+			}
+			seen = true
+		}
+		ip = next(ip)
+		return value
+	}
+}
+
+func (a *Allocator) Allocate() (netip.Addr, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	rangeSize := a.size - uint64(a.reserved)
+	var offset uint64
+	switch {
+	case rangeSize >= math.MaxInt64:
+		offset = rand.Uint64()
+	case rangeSize == 0:
+		return netip.Addr{}, fmt.Errorf("not available addresses")
+	default:
+		offset = uint64(rand.Int64N(int64(rangeSize)))
+	}
+
+	iterator := ipIterator(a.ipFirst, a.ipLast, offset)
+	for {
+		ip := iterator()
+		if !ip.IsValid() {
+			break
+		}
+		// IP already exist
+		if a.store.Has(ip) {
+			continue
+		}
+		a.store.Insert(ip)
+		return ip, nil
+
+	}
+	return netip.Addr{}, fmt.Errorf("allocator full")
+}
+
+func (a *Allocator) AllocateAddress(ip netip.Addr) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.cidr.Contains(ip) {
+		return fmt.Errorf("address %s out of range %s", ip.String(), a.cidr.String())
+	}
+	if a.store.Has(ip) {
+		return fmt.Errorf("address %s allready allocated", ip.String())
+	}
+	if a.ipFirst.Compare(ip) == 1 {
+		return fmt.Errorf("address %s on the reserved space, lower than %s", ip.String(), a.ipFirst.String())
+	}
+	a.store.Insert(ip)
+	return nil
+}
+
+func (a *Allocator) Release(ip netip.Addr) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	delete(a.store, ip)
+}
 
 /* cni config management */
 
-// CNIConfigInputs is supplied to the CNI config template
-type CNIConfigInputs struct {
-	PodCIDRs      []string
-	RangeStart    []string
-	DefaultRoutes []string
-	Mtu           int
+type CNIServer struct {
+	allocatorV4 []*Allocator
+	allocatorV6 []*Allocator
+	listener    net.Listener
+	mtu         int
+
+	nodeName    string
+	nodeLister  corelisters.NodeLister
+	nodesSynced cache.InformerSynced
 }
 
-// ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
-func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
-	inputs := CNIConfigInputs{}
-	podCIDRs, _ := utilsnet.ParseCIDRs(node.Spec.PodCIDRs) // already validated
-	for _, podCIDR := range podCIDRs {
-		inputs.PodCIDRs = append(inputs.PodCIDRs, podCIDR.String())
-		// define the default route
-		if utilsnet.IsIPv4CIDR(podCIDR) {
-			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "0.0.0.0/0")
+func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CNIServer, error) {
+	// remove the socket in case we didn't deleted on termination
+	_ = os.Remove(apis.SocketPath)
+	listener, err := net.Listen("unix", apis.SocketPath)
+	if err != nil {
+		return nil, err
+	}
+
+	mtu, err := GetMTU(netlink.FAMILY_V4)
+	if err != nil {
+		mtu, err = GetMTU(netlink.FAMILY_V6)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	c := &CNIServer{
+		nodeName:    nodeName,
+		nodeLister:  nodeInformer.Lister(),
+		nodesSynced: nodeInformer.Informer().HasSynced,
+		listener:    listener,
+		mtu:         mtu,
+	}
+
+	return c, nil
+}
+
+func (c *CNIServer) Run(ctx context.Context) error {
+	defer c.listener.Close()
+	if ok := cache.WaitForNamedCacheSync("kindnet-cni", ctx.Done(), c.nodesSynced); !ok {
+		return fmt.Errorf("failed to wait for caches to sync")
+	}
+
+	var ranges []string
+	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (done bool, err error) {
+		node, err := c.nodeLister.Get(c.nodeName)
+		if err != nil || node == nil {
+			return false, nil
+		}
+		if len(node.Spec.PodCIDRs) > 0 {
+			ranges = node.Spec.PodCIDRs
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, cidr := range ranges {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return err
+		}
+		allocator, err := NewAllocator(prefix, 8)
+		if err != nil {
+			return err
+		}
+		if prefix.Addr().Is4() {
+			c.allocatorV4 = append(c.allocatorV4, allocator)
 		} else {
-			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "::/0")
+			c.allocatorV6 = append(c.allocatorV6, allocator)
 		}
-		// reserve the first IPs of the range
-		size := utilsnet.RangeSize(podCIDR)
-		podCapacity := node.Status.Capacity.Pods().Value()
-		if podCapacity == 0 {
-			podCapacity = 110 // default to 110
+	}
+
+	// populat the allocators if there were already Pods running
+	ips, err := getPodsIPs()
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		address, err := netip.ParseAddr(ip)
+		if err != nil {
+			return err
 		}
-		rangeStart := ""
-		offset := size - podCapacity
-		if offset > 10 { // reserve the first 10 addresses of the Pod range if there is capacity
-			startAddress, err := utilsnet.GetIndexedIP(podCIDR, 10)
-			if err == nil {
-				rangeStart = startAddress.String()
+		if address.Is4() {
+			for _, alloc := range c.allocatorV4 {
+				_ = alloc.AllocateAddress(address)
+			}
+		} else {
+			for _, alloc := range c.allocatorV6 {
+				_ = alloc.AllocateAddress(address)
 			}
 		}
-		inputs.RangeStart = append(inputs.RangeStart, rangeStart)
 
 	}
-	return inputs
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
+		result := apis.NetworkConfig{
+			MTU: c.mtu,
+		}
+		for _, v4alloc := range c.allocatorV4 {
+			addr, err := v4alloc.Allocate()
+			if err != nil {
+				continue
+			}
+			result.IPs = append(result.IPs, addr.String())
+			break
+		}
+		for _, v6alloc := range c.allocatorV6 {
+			addr, err := v6alloc.Allocate()
+			if err != nil {
+				continue
+			}
+			result.IPs = append(result.IPs, addr.String())
+			break
+		}
+		out, err := json.Marshal(result)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, err = w.Write(out)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	})
+
+	err = WriteCNIConfig()
+	if err != nil {
+		klog.Fatalf("unable to write CNI config file: %v", err)
+	}
+
+	klog.Infof("CNI server listening on %s", apis.SocketPath)
+	return http.Serve(c.listener, mux)
 }
 
 // GetMTU returns the MTU used for the IP family
@@ -124,134 +372,85 @@ func GetDefaultGwInterface(ipFamily int) (string, error) {
 	return "", fmt.Errorf("not routes found")
 }
 
-// cniConfigPath is where kindnetd will write the computed CNI config
-const cniConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
+const (
+	// cniConfigPath is where kindnetd will write the computed CNI config
+	cniConfigPath = "/etc/cni/net.d"
 
-const cniConfigTemplate = `
+	cniConfigFile = "10-kindnet.conflist"
+
+	// cniConfig is static as it will get the values from the daemon
+	cniConfig = `
 {
 	"cniVersion": "0.4.0",
 	"name": "kindnet",
 	"plugins": [
-	{
-		"type": "ptp",
-		"ipMasq": false,
-		"ipam": {
-			"type": "host-local",
-			"dataDir": "/run/cni-ipam-state",
-			"routes": [
-				{{- range $i, $route := .DefaultRoutes}}
-				{{- if gt $i 0 }},{{end}}
-				{ "dst": "{{ $route }}" }
-				{{- end}}
-			],
-			"ranges": [
-				{{- range $i, $cidr := .PodCIDRs}}
-				{{- if gt $i 0 }},{{end}}
-				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
-				{{- end}}
-			]
+		{
+			"type": "cni-kindnet"
 		}
-		{{if .Mtu}},
-		"mtu": {{ .Mtu }}
-		{{end}}
-	},
-	{
-		"type": "portmap",
-		"capabilities": {
-			"portMappings": true
-		}
-	}
 	]
 }
 `
+)
 
-const cniConfigTemplateBridge = `
-{
-	"cniVersion": "0.4.0",
-	"name": "kindnet",
-	"plugins": [
-	{
-		"type": "bridge",
-		"bridge": "kind-br",
-		"ipMasq": false,
-		"isGateway": true,
-		"isDefaultGateway": true,
-		"hairpinMode": true,
-		"ipam": {
-			"type": "host-local",
-			"dataDir": "/run/cni-ipam-state",
-			"ranges": [
-				{{- range $i, $cidr := .PodCIDRs}}
-				{{- if gt $i 0 }},{{end}}
-				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
-				{{- end}}
-			]
-		}
-		{{- if .Mtu}},
-		"mtu": {{ .Mtu }}
-		{{- end}}
-	},
-	{
-		"type": "portmap",
-		"capabilities": {
-			"portMappings": true
-		}
-	}
-	]
-}
-`
-
-// CNIConfigWriter no-ops re-writing config with the same inputs
-// NOTE: should only be called from a single goroutine
-type CNIConfigWriter struct {
-	path       string
-	lastInputs CNIConfigInputs
-	mtu        int
-	bridge     bool
-}
-
-// Write will write the config based on
-func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
-	if reflect.DeepEqual(inputs, c.lastInputs) {
-		return nil
-	}
-
-	// use an extension not recognized by CNI to write the contents initially
-	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
-	// then we can rename to atomically make the file appear
-	f, err := os.Create(c.path + ".temp")
+func WriteCNIConfig() (err error) {
+	cniFile := filepath.Join(cniConfigPath, cniConfigFile)
+	_ = os.Remove(cniFile)
+	err = os.WriteFile(cniFile, []byte(cniConfig), 0644)
 	if err != nil {
+		_ = os.Remove(cniFile)
 		return err
 	}
-
-	template := cniConfigTemplate
-	if c.bridge {
-		template = cniConfigTemplateBridge
-	}
-
-	// actually write the config
-	if err := writeCNIConfig(f, template, inputs); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return err
-	}
-	_ = f.Sync()
-	_ = f.Close()
-
-	// then we can rename to the target config path
-	if err := os.Rename(f.Name(), c.path); err != nil {
-		return err
-	}
-
-	// we're safely done now, record the inputs
-	c.lastInputs = inputs
 	return nil
 }
 
-func writeCNIConfig(w io.Writer, rawTemplate string, data CNIConfigInputs) error {
-	t, err := template.New("cni-json").Parse(rawTemplate)
-	if err != nil {
-		return errors.Wrap(err, "failed to parse cni template")
+// broadcastAddress returns the broadcast address of the subnet
+// The broadcast address is obtained by setting all the host bits
+// in a subnet to 1.
+// network 192.168.0.0/24 : subnet bits 24 host bits 32 - 24 = 8
+// broadcast address 192.168.0.255
+func broadcastAddress(subnet netip.Prefix) (netip.Addr, error) {
+	base := subnet.Masked().Addr()
+	bytes := base.AsSlice()
+	// get all the host bits from the subnet
+	n := 8*len(bytes) - subnet.Bits()
+	// set all the host bits to 1
+	for i := len(bytes) - 1; i >= 0 && n > 0; i-- {
+		if n >= 8 {
+			bytes[i] = 0xff
+			n -= 8
+		} else {
+			mask := ^uint8(0) >> (8 - n)
+			bytes[i] |= mask
+			break
+		}
 	}
-	return t.Execute(w, &data)
+
+	addr, ok := netip.AddrFromSlice(bytes)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", bytes)
+	}
+	return addr, nil
+}
+
+// addOffsetAddress returns the address at the provided offset within the subnet
+// TODO: move it to k8s.io/utils/net, this is the same as current AddIPOffset()
+// but using netip.Addr instead of net.IP
+func addOffsetAddress(address netip.Addr, offset uint64) (netip.Addr, error) {
+	addressBytes := address.AsSlice()
+	addressBig := big.NewInt(0).SetBytes(addressBytes)
+	r := big.NewInt(0).Add(addressBig, big.NewInt(int64(offset))).Bytes()
+	// r must be 4 or 16 bytes depending of the ip family
+	// bigInt conversion to bytes will not take this into consideration
+	// and drop the leading zeros, so we have to take this into account.
+	lenDiff := len(addressBytes) - len(r)
+	if lenDiff > 0 {
+		r = append(make([]byte, lenDiff), r...)
+	} else if lenDiff < 0 {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", r)
+	}
+	addr, ok := netip.AddrFromSlice(r)
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("invalid address %v", r)
+	}
+	return addr, nil
 }

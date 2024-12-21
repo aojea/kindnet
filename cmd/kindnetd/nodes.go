@@ -29,20 +29,17 @@ type NodeController struct {
 
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
-
-	cniConfigWriter *CNIConfigWriter
 }
 
-func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer, cniConfigWriter *CNIConfigWriter) *NodeController {
+func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer) *NodeController {
 	klog.V(2).Info("Creating routes controller")
 
 	c := &NodeController{
-		nodeName:        nodeName,
-		client:          client,
-		nodeLister:      nodeInformer.Lister(),
-		nodesSynced:     nodeInformer.Informer().HasSynced,
-		workqueue:       workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		cniConfigWriter: cniConfigWriter,
+		nodeName:    nodeName,
+		client:      client,
+		nodeLister:  nodeInformer.Lister(),
+		nodesSynced: nodeInformer.Informer().HasSynced,
+		workqueue:   workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
 	_, err := nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: c.enqueueNode,
@@ -174,10 +171,7 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 	if node.Name != c.nodeName {
 		return syncRoute(node)
 	}
-	// compute the current cni config inputs for our own node
-	err = c.cniConfigWriter.Write(
-		ComputeCNIConfigInputs(node),
-	)
+
 	return err
 }
 

@@ -3,111 +3,196 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
+	"net/netip"
+	"reflect"
 	"testing"
-
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func Test_writeCNIConfig(t *testing.T) {
+func TestAllocater(t *testing.T) {
+	a, err := NewAllocator(netip.MustParsePrefix("192.168.1.0/25"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// can not allocate on the reserved space
+	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.2"))
+	if err == nil {
+		t.Fatal("can not alllocate on the reserved space")
+	}
+
+	allocatable := a.size - 10 - 1
+	var i uint64
+	for i = 0; i < allocatable; i++ {
+		_, err := a.Allocate()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// it should fail to allocate since it is full
+	ip, err := a.Allocate()
+	if err == nil {
+		t.Fatalf("unexpected success %s", ip.String())
+	}
+
+	// release and allocate manually
+	a.Release(netip.MustParseAddr("192.168.1.33"))
+	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.33"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// it should fail to allocate since it is full
+	ip, err = a.Allocate()
+	if err == nil {
+		t.Fatalf("unexpected success %s", ip.String())
+	}
+
+}
+
+func Test_broadcastAddress(t *testing.T) {
 	tests := []struct {
-		name    string
-		node    *v1.Node
-		mtu     int
-		wantW   string
-		wantErr bool
+		name   string
+		subnet netip.Prefix
+		want   netip.Addr
 	}{
 		{
-			name: "ipv4 only and ptp plugin and start range",
-			mtu:  1500,
-			node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node0",
-				},
-				Spec: v1.NodeSpec{
-					PodCIDRs: []string{"192.168.0.0/24"},
-				},
-				Status: v1.NodeStatus{
-					Capacity: v1.ResourceList{
-						v1.ResourcePods: resource.MustParse("110"),
-					},
-				},
-			},
+			name:   "ipv4",
+			subnet: netip.MustParsePrefix("192.168.0.0/24"),
+			want:   netip.MustParseAddr("192.168.0.255"),
 		},
 		{
-			name: "dual stack only and ptp plugin and start range",
-			node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node0",
-				},
-				Spec: v1.NodeSpec{
-					PodCIDRs: []string{"192.168.0.0/24", "fd00:1:2:3::/96"},
-				},
-				Status: v1.NodeStatus{
-					Capacity: v1.ResourceList{
-						v1.ResourcePods: resource.MustParse("110"),
-					},
-				},
-			},
+			name:   "ipv4 no nibble boundary",
+			subnet: netip.MustParsePrefix("10.0.0.0/12"),
+			want:   netip.MustParseAddr("10.15.255.255"),
 		},
 		{
-			name: "ipv4 only and ptp plugin and no start range",
-			mtu:  1500,
-			node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node0",
-				},
-				Spec: v1.NodeSpec{
-					PodCIDRs: []string{"192.168.0.0/24"},
-				},
-				Status: v1.NodeStatus{
-					Capacity: v1.ResourceList{
-						v1.ResourcePods: resource.MustParse("255"),
-					},
-				},
-			},
+			name:   "ipv6",
+			subnet: netip.MustParsePrefix("fd00:1:2:3::/64"),
+			want:   netip.MustParseAddr("fd00:1:2:3:FFFF:FFFF:FFFF:FFFF"),
 		},
 		{
-			name: "dual stack only and ptp plugin and no start range",
-			node: &v1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "node0",
-				},
-				Spec: v1.NodeSpec{
-					PodCIDRs: []string{"192.168.0.0/24", "fd00:1:2:3::/96"},
-				},
-				Status: v1.NodeStatus{
-					Capacity: v1.ResourceList{
-						v1.ResourcePods: resource.MustParse("255"),
-					},
-				},
-			},
+			name:   "ipv6 00fc::/112",
+			subnet: netip.MustParsePrefix("00fc::/112"),
+			want:   netip.MustParseAddr("fc::ffff"),
+		},
+		{
+			name:   "ipv6 fc00::/112",
+			subnet: netip.MustParsePrefix("fc00::/112"),
+			want:   netip.MustParseAddr("fc00::ffff"),
 		},
 	}
 	for _, tt := range tests {
-		for _, cniTemplate := range []string{cniConfigTemplate, cniConfigTemplateBridge} {
-			t.Run(tt.name, func(t *testing.T) {
-				w := &bytes.Buffer{}
-				data := ComputeCNIConfigInputs(tt.node)
-				data.Mtu = tt.mtu
-				if err := writeCNIConfig(w, cniTemplate, data); (err != nil) != tt.wantErr {
-					t.Errorf("writeCNIConfig() error = %v, wantErr %v", err, tt.wantErr)
-					return
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := broadcastAddress(tt.subnet); !reflect.DeepEqual(got, tt.want) || err != nil {
+				t.Errorf("broadcastAddress() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_addOffsetAddress(t *testing.T) {
+	tests := []struct {
+		name    string
+		address netip.Addr
+		offset  uint64
+		want    netip.Addr
+	}{
+		{
+			name:    "IPv4 offset 0",
+			address: netip.MustParseAddr("192.168.0.0"),
+			offset:  0,
+			want:    netip.MustParseAddr("192.168.0.0"),
+		},
+		{
+			name:    "IPv4 offset 0 not nibble boundary",
+			address: netip.MustParseAddr("192.168.0.11"),
+			offset:  0,
+			want:    netip.MustParseAddr("192.168.0.11"),
+		},
+		{
+			name:    "IPv4 offset 1",
+			address: netip.MustParseAddr("192.168.0.0"),
+			offset:  1,
+			want:    netip.MustParseAddr("192.168.0.1"),
+		},
+		{
+			name:    "IPv4 offset 1 not nibble boundary",
+			address: netip.MustParseAddr("192.168.0.11"),
+			offset:  1,
+			want:    netip.MustParseAddr("192.168.0.12"),
+		},
+		{
+			name:    "IPv6 offset 1",
+			address: netip.MustParseAddr("fd00:1:2:3::"),
+			offset:  1,
+			want:    netip.MustParseAddr("fd00:1:2:3::1"),
+		},
+		{
+			name:    "IPv6 offset 1 not nibble boundary",
+			address: netip.MustParseAddr("fd00:1:2:3::a"),
+			offset:  1,
+			want:    netip.MustParseAddr("fd00:1:2:3::b"),
+		},
+		{
+			name:    "IPv4 offset last",
+			address: netip.MustParseAddr("192.168.0.0"),
+			offset:  255,
+			want:    netip.MustParseAddr("192.168.0.255"),
+		},
+		{
+			name:    "IPv6 offset last",
+			address: netip.MustParseAddr("fd00:1:2:3::"),
+			offset:  0x7FFFFFFFFFFFFFFF,
+			want:    netip.MustParseAddr("fd00:1:2:3:7FFF:FFFF:FFFF:FFFF"),
+		},
+		{
+			name:    "IPv4 offset middle",
+			address: netip.MustParseAddr("192.168.0.0"),
+			offset:  128,
+			want:    netip.MustParseAddr("192.168.0.128"),
+		},
+		{
+			name:    "IPv4 with leading zeros",
+			address: netip.MustParseAddr("0.0.1.8"),
+			offset:  138,
+			want:    netip.MustParseAddr("0.0.1.146"),
+		},
+		{
+			name:    "IPv6 with leading zeros",
+			address: netip.MustParseAddr("00fc::1"),
+			offset:  255,
+			want:    netip.MustParseAddr("fc::100"),
+		},
+		{
+			name:    "IPv6 offset 255",
+			address: netip.MustParseAddr("2001:db8:1::101"),
+			offset:  255,
+			want:    netip.MustParseAddr("2001:db8:1::200"),
+		},
+		{
+			name:    "IPv6 offset 1025",
+			address: netip.MustParseAddr("fd00:1:2:3::"),
+			offset:  1025,
+			want:    netip.MustParseAddr("fd00:1:2:3::401"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := addOffsetAddress(tt.address, tt.offset)
+			if !reflect.DeepEqual(got, tt.want) || err != nil {
+				t.Errorf("offsetAddress() = %v, want %v", got, tt.want)
+			}
+			// double check to avoid mistakes on the hardcoded values
+			// avoid large numbers or it will timeout the test
+			if tt.offset < 2048 {
+				want := tt.address
+				var i uint64
+				for i = 0; i < tt.offset; i++ {
+					want = want.Next()
 				}
-				t.Logf("CNI input:\n%#v", data)
-				t.Logf("CNI config:\n%s", w.String())
-				// is valid json
-				if !json.Valid([]byte(w.String())) {
-					t.Errorf("Invalid Json: %s", w.String())
+				if !reflect.DeepEqual(got, tt.want) || err != nil {
+					t.Errorf("offsetAddress() = %v, want %v", got, tt.want)
 				}
-				if gotW := w.String(); gotW != tt.wantW {
-					// TODO validate the content
-					// t.Errorf("writeCNIConfig() = %v, want %v", gotW, tt.wantW)
-				}
-			})
-		}
+			}
+		})
 	}
 }
