@@ -312,7 +312,8 @@ func (c *CNIServer) Run(ctx context.Context) error {
 			return
 		}
 
-		if r.Method == http.MethodGet {
+		switch r.Method {
+		case http.MethodGet:
 			result := apis.NetworkConfig{
 				GatewayV4: gatewayV4,
 				GatewayV6: gatewayV6,
@@ -350,7 +351,7 @@ func (c *CNIServer) Run(ctx context.Context) error {
 			c.mu.Unlock()
 
 			klog.V(2).Infof("Allocating IPs %v and MTU %d", result.IPs, result.MTU)
-		} else if r.Method == http.MethodDelete {
+		case http.MethodDelete:
 			c.mu.Lock()
 			ips := c.podIPs[id]
 			for _, ip := range ips {
@@ -373,7 +374,7 @@ func (c *CNIServer) Run(ctx context.Context) error {
 
 			klog.V(2).Infof("Releasing IPs %v", ips)
 			w.WriteHeader(http.StatusOK)
-		} else {
+		default:
 			w.WriteHeader(http.StatusNotImplemented)
 		}
 	})

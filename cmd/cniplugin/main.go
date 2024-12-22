@@ -71,7 +71,7 @@ func release(id string) {
 	defer resp.Body.Close()
 
 	// read the response body
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 }
 
 func cmdAdd(args *skel.CmdArgs) (err error) {
