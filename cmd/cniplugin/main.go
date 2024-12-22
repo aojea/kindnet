@@ -15,12 +15,14 @@ import (
 	"strconv"
 
 	"github.com/aojea/kindnet/pkg/apis"
+	"golang.org/x/sys/unix"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
 	current "github.com/containernetworking/cni/pkg/types/040"
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/vishvananda/netlink"
+	"github.com/vishvananda/netlink/nl"
 	"github.com/vishvananda/netns"
 	"k8s.io/utils/ptr"
 )
@@ -118,29 +120,19 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return fmt.Errorf("could not get network namespace from path %s for network device %s : %w", args.Netns, args.IfName, err)
 	}
 
-	mtu := 1500
-	if response.MTU > 0 {
-		mtu = response.MTU
+	rootNs, err := netns.Get()
+	if err != nil {
+		return err
 	}
+	defer rootNs.Close()
 
+	/*
+		mtu := 1500
+		if response.MTU > 0 {
+			mtu = response.MTU
+		}
+	*/
 	ifName := getInterfaceName()
-
-	link := &netlink.Veth{
-		LinkAttrs: netlink.LinkAttrs{
-			Name: ifName,
-			MTU:  mtu,
-		},
-		PeerName:      defaultInterface,
-		PeerNamespace: netlink.NsFd(containerNs),
-	}
-
-	if err := netlink.LinkAdd(link); err != nil {
-		return fmt.Errorf("fail to add interface on namespace %s : %v", args.Netns, err)
-	}
-
-	// don't accept Router Advertisements
-	_ = os.WriteFile(fmt.Sprintf("net/ipv6/conf/%s/accept_ra", ifName), []byte(strconv.Itoa(0)), 0640)
-
 	// to avoid golang problem with goroutines we create the socket in the
 	// namespace and use it directly
 	nhNs, err := netlink.NewHandleAt(containerNs)
@@ -148,7 +140,59 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err
 	}
 
-	nsLink, err := nhNs.LinkByName(defaultInterface)
+	flags := unix.NLM_F_CREATE | unix.NLM_F_EXCL | unix.NLM_F_ACK
+	req := nl.NewNetlinkRequest(unix.RTM_NEWLINK, flags)
+	// Get a netlink socket in current namespace
+	s, err := nl.GetNetlinkSocketAt(containerNs, rootNs, unix.NETLINK_ROUTE)
+	if err != nil {
+		return fmt.Errorf("could not get network namespace handle: %w", err)
+	}
+	req.Sockets = map[int]*nl.SocketHandle{
+		unix.NETLINK_ROUTE: {Socket: s},
+	}
+
+	msg := nl.NewIfInfomsg(unix.AF_UNSPEC)
+	req.AddData(msg)
+
+	nameData := nl.NewRtAttr(unix.IFLA_IFNAME, nl.ZeroTerminated(defaultInterface))
+	req.AddData(nameData)
+
+	// mtuData := nl.NewRtAttr(unix.IFLA_MTU, nl.Uint32Attr(uint32(mtu)))
+	// req.AddData(mtuData)
+
+	// base namespace the container
+	val := nl.Uint32Attr(uint32(containerNs))
+	attr := nl.NewRtAttr(unix.IFLA_NET_NS_FD, val)
+	req.AddData(attr)
+
+	linkInfo := nl.NewRtAttr(unix.IFLA_LINKINFO, nil)
+	linkInfo.AddRtAttr(nl.IFLA_INFO_KIND, nl.NonZeroTerminated("veth"))
+
+	// peer
+	data := linkInfo.AddRtAttr(nl.IFLA_INFO_DATA, nil)
+	peer := data.AddRtAttr(nl.VETH_INFO_PEER, nil)
+	nl.NewIfInfomsgChild(peer, unix.AF_UNSPEC)
+	peer.AddRtAttr(unix.IFLA_IFNAME, nl.ZeroTerminated(ifName))
+
+	// valRoot := nl.Uint32Attr(uint32(rootNs))
+	// peer.AddRtAttr(unix.IFLA_NET_NS_FD, valRoot)
+
+	req.AddData(linkInfo)
+
+	_, err = req.Execute(unix.NETLINK_ROUTE, 0)
+	if err != nil {
+		return fmt.Errorf("fail to add interface on namespace %s : %v", args.Netns, err)
+	}
+
+	// don't accept Router Advertisements
+	_ = os.WriteFile(fmt.Sprintf("net/ipv6/conf/%s/accept_ra", ifName), []byte(strconv.Itoa(0)), 0640)
+
+	nsLink, err := nhNs.LinkByName(ifName)
+	if err != nil {
+		return fmt.Errorf("could not get interface %s on namespace %s : %w", defaultInterface, args.Netns, err)
+	}
+
+	hostLink, err := netlink.LinkByName(defaultInterface)
 	if err != nil {
 		return fmt.Errorf("could not get interface %s on namespace %s : %w", defaultInterface, args.Netns, err)
 	}
@@ -179,14 +223,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 
 		// set the route from the host to the network namespace
-		route := netlink.Route{LinkIndex: link.Attrs().Index, Dst: address.IPNet}
+		route := netlink.Route{LinkIndex: hostLink.Attrs().Index, Dst: address.IPNet}
 		if err := netlink.RouteAdd(&route); err != nil {
 			return fmt.Errorf("could not add default route on namespace %s : %w", args.Netns, err)
 		}
-
 	}
 
-	if err = netlink.LinkSetUp(link); err != nil {
+	if err = nhNs.LinkSetUp(nsLink); err != nil {
 		return fmt.Errorf("failed to set interface %s up: %v", ifName, err)
 	}
 
@@ -236,7 +279,7 @@ func main() {
 }
 
 func getInterfaceName() string {
-	rndString := make([]byte, 8)
+	rndString := make([]byte, 4)
 	_, err := rand.Read(rndString)
 	if err != nil {
 		panic(err)
