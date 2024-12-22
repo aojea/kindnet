@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -112,7 +111,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	if len(result.IPs) == 0 {
-		return errors.New("no IPs available")
+		return fmt.Errorf("no IPs available: %#v", result)
 	}
 
 	containerNs, err := netns.GetFromPath(args.Netns)
