@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aojea/kindnet/pkg/apis"
@@ -176,8 +177,8 @@ type CNIServer struct {
 	mtu         int
 
 	// track the allocated IPs by containerid so we can release them
-	mu           sync.Mutex
-	containerIPs map[string][]string
+	mu     sync.Mutex
+	podIPs map[string][]string
 
 	nodeName    string
 	nodeLister  corelisters.NodeLister
@@ -201,12 +202,12 @@ func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CN
 	}
 
 	c := &CNIServer{
-		nodeName:     nodeName,
-		nodeLister:   nodeInformer.Lister(),
-		nodesSynced:  nodeInformer.Informer().HasSynced,
-		listener:     listener,
-		mtu:          mtu,
-		containerIPs: map[string][]string{},
+		nodeName:    nodeName,
+		nodeLister:  nodeInformer.Lister(),
+		nodesSynced: nodeInformer.Informer().HasSynced,
+		listener:    listener,
+		mtu:         mtu,
+		podIPs:      map[string][]string{},
 	}
 
 	return c, nil
@@ -235,7 +236,12 @@ func (c *CNIServer) Run(ctx context.Context) error {
 	}
 
 	klog.Infof("Allocating Pod IPs from following ranges %v", ranges)
-
+	// use the network address as gateway by adding it to the loopback interface
+	var gatewayV4, gatewayV6 string
+	loLink, err := netlink.LinkByName("lo")
+	if err != nil {
+		return fmt.Errorf("could not get interface loopback: %w", err)
+	}
 	for _, cidr := range ranges {
 		prefix, err := netip.ParsePrefix(cidr)
 		if err != nil {
@@ -247,30 +253,53 @@ func (c *CNIServer) Run(ctx context.Context) error {
 		}
 		if prefix.Addr().Is4() {
 			c.allocatorV4 = append(c.allocatorV4, allocator)
+			gatewayV4 = prefix.Masked().Addr().String()
+			addr, err := netlink.ParseAddr(gatewayV4 + "/32")
+			if err != nil {
+				return err
+			}
+			// it may already exist
+			err = netlink.AddrAdd(loLink, addr)
+			if err != nil && err != syscall.EEXIST {
+				return err
+			}
 		} else {
 			c.allocatorV6 = append(c.allocatorV6, allocator)
+			gatewayV6 = prefix.Masked().Addr().String()
+			addr, err := netlink.ParseAddr(gatewayV6 + "/128")
+			if err != nil {
+				return err
+			}
+			err = netlink.AddrAdd(loLink, addr)
+			if err != nil && err != syscall.EEXIST {
+				return err
+			}
 		}
 	}
 
 	// populat the allocators if there were already Pods running
-	ips, err := getPodsIPs()
+	podIPs, err := getPodsIPs()
 	if err != nil {
 		return err
 	}
 
-	klog.Infof("IPs %v already in use by Pods", ips)
-	for _, ip := range ips {
-		address, err := netip.ParseAddr(ip)
-		if err != nil {
-			return err
-		}
-		if address.Is4() {
-			for _, alloc := range c.allocatorV4 {
-				_ = alloc.AllocateAddress(address)
+	c.podIPs = podIPs
+
+	for id, ips := range podIPs {
+		klog.Infof("IPs %v already in use by Pod %s", ips, id)
+		for _, ip := range ips {
+			address, err := netip.ParseAddr(ip)
+			if err != nil {
+				return err
 			}
-		} else {
-			for _, alloc := range c.allocatorV6 {
-				_ = alloc.AllocateAddress(address)
+			if address.Is4() {
+				for _, alloc := range c.allocatorV4 {
+					_ = alloc.AllocateAddress(address)
+				}
+			} else {
+				for _, alloc := range c.allocatorV6 {
+					_ = alloc.AllocateAddress(address)
+				}
 			}
 		}
 	}
@@ -285,7 +314,9 @@ func (c *CNIServer) Run(ctx context.Context) error {
 
 		if r.Method == http.MethodGet {
 			result := apis.NetworkConfig{
-				MTU: c.mtu,
+				GatewayV4: gatewayV4,
+				GatewayV6: gatewayV6,
+				MTU:       c.mtu,
 			}
 			for _, v4alloc := range c.allocatorV4 {
 				addr, err := v4alloc.Allocate()
@@ -315,13 +346,13 @@ func (c *CNIServer) Run(ctx context.Context) error {
 				return
 			}
 			c.mu.Lock()
-			c.containerIPs[id] = result.IPs
+			c.podIPs[id] = result.IPs
 			c.mu.Unlock()
 
 			klog.V(2).Infof("Allocating IPs %v and MTU %d", result.IPs, result.MTU)
 		} else if r.Method == http.MethodDelete {
 			c.mu.Lock()
-			ips := c.containerIPs[id]
+			ips := c.podIPs[id]
 			for _, ip := range ips {
 				address, err := netip.ParseAddr(ip)
 				if err != nil {

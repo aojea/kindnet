@@ -38,7 +38,7 @@ func getRuntimeService(timeout time.Duration) (res internalapi.RuntimeService, e
 	return remote.NewRemoteRuntimeService(RuntimeEndpoint, timeout, nil, &logger)
 }
 
-func getPodsIPs() ([]string, error) {
+func getPodsIPs() (map[string][]string, error) {
 	client, err := getRuntimeService(5 * time.Second)
 	if err != nil {
 		return nil, err
@@ -47,12 +47,14 @@ func getPodsIPs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	ips := sets.Set[string]{}
+	result := map[string][]string{}
 	for _, sandbox := range sandboxes {
 		status, err := client.PodSandboxStatus(context.Background(), sandbox.Id, false)
 		if err != nil {
 			return nil, err
 		}
+
+		ips := sets.Set[string]{}
 		if len(status.Status.Network.Ip) > 0 {
 			ips.Insert(status.Status.Network.Ip)
 		}
@@ -61,6 +63,9 @@ func getPodsIPs() ([]string, error) {
 				ips.Insert(podip.String())
 			}
 		}
+		if ips.Len() > 0 {
+			result[sandbox.Id] = ips.UnsortedList()
+		}
 	}
-	return ips.UnsortedList(), nil
+	return result, nil
 }

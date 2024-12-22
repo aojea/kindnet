@@ -59,12 +59,14 @@ func release(id string) {
 	req, err := http.NewRequest("DELETE", ipamURL+"?id="+id, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+		return
 	}
 
 	// send the request
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+		return
 	}
 	defer resp.Body.Close()
 
@@ -94,13 +96,6 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 	if err != nil {
 		return fmt.Errorf("invalid kindnet response: %w", err)
 	}
-
-	// deallocate the IP if for any reason we fail to add the network interface
-	defer func() {
-		if err != nil {
-			release(args.ContainerID)
-		}
-	}()
 
 	var response apis.NetworkConfig
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -245,26 +240,53 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 			return fmt.Errorf("could not add address %s on namespace %s : %w", ipconfig.Address.String(), args.Netns, err)
 		}
 
+		routeGw := netlink.Route{
+			LinkIndex: nsLink.Attrs().Index,
+			Flags:     int(netlink.FLAG_ONLINK), // no need to arp
+		}
 		// set the default gateway inside the container
 		if ipconfig.Version == "6" && !v6set {
-			route := netlink.Route{LinkIndex: nsLink.Attrs().Index, Dst: defaultV6gw}
-			if err := nhNs.RouteAdd(&route); err != nil {
+			ip := net.ParseIP(response.GatewayV6)
+			if ip == nil {
+				return fmt.Errorf("invalid ip address %s", address)
+			}
+			routeGw.Gw = ip
+			routeGw.Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 0)}
+			if err := nhNs.RouteAdd(&routeGw); err != nil {
 				return fmt.Errorf("could not add default route on namespace %s : %w", args.Netns, err)
+			}
+			// set the route from the host to the network namespace
+			route := netlink.Route{
+				LinkIndex: hostLink.Attrs().Index,
+				Src:       ip,
+				Dst:       address.IPNet,
+			}
+			if err := netlink.RouteAdd(&route); err != nil {
+				return fmt.Errorf("could not add route to the container interface %s : %w", hostLink.Attrs().Name, err)
 			}
 			v6set = true
 		} else if ipconfig.Version == "4" && !v4set {
-			route := netlink.Route{LinkIndex: nsLink.Attrs().Index, Dst: defaultV4gw}
-			if err := nhNs.RouteAdd(&route); err != nil {
+			ip := net.ParseIP(response.GatewayV4)
+			if ip == nil {
+				return fmt.Errorf("invalid ip address %s", address)
+			}
+			routeGw.Gw = ip
+			routeGw.Dst = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 0)}
+			if err := nhNs.RouteAdd(&routeGw); err != nil {
 				return fmt.Errorf("could not add default route on namespace %s : %w", args.Netns, err)
+			}
+			// set the route from the host to the network namespace
+			route := netlink.Route{
+				LinkIndex: hostLink.Attrs().Index,
+				Src:       ip,
+				Dst:       address.IPNet,
+			}
+			if err := netlink.RouteAdd(&route); err != nil {
+				return fmt.Errorf("could not add route to the container interface %s : %w", hostLink.Attrs().Name, err)
 			}
 			v4set = true
 		}
 
-		// set the route from the host to the network namespace
-		route := netlink.Route{LinkIndex: hostLink.Attrs().Index, Dst: address.IPNet}
-		if err := netlink.RouteAdd(&route); err != nil {
-			return fmt.Errorf("could not add route to the container interface %s : %w", hostLink.Attrs().Name, err)
-		}
 	}
 
 	return result.Print()
