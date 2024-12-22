@@ -43,9 +43,36 @@ const (
 var (
 	defaultV4gw = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 0)}
 	defaultV6gw = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 0)}
+
+	// IPAM is provided via an unix socket to allow dynamic configuration
+	client = http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return net.Dial("unix", apis.SocketPath)
+			},
+		},
+	}
 )
 
-func cmdAdd(args *skel.CmdArgs) error {
+func release(id string) {
+	// create a new DELETE request
+	req, err := http.NewRequest("DELETE", ipamURL+"?id="+id, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+	}
+
+	// send the request
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+	}
+	defer resp.Body.Close()
+
+	// read the response body
+	io.Copy(io.Discard, resp.Body)
+}
+
+func cmdAdd(args *skel.CmdArgs) (err error) {
 	conf := types.NetConf{}
 	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
 		return fmt.Errorf("failed to load netconf: %v", err)
@@ -55,17 +82,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return nil
 	}
 
-	// IPAM is provided via an unix socket to allow dynamic configuration
-	client := http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return net.Dial("unix", apis.SocketPath)
-			},
-		},
-	}
-
 	// return an ordered comma separated list of IPs
-	resp, err := client.Get(ipamURL)
+	resp, err := client.Get(ipamURL + "?id=" + args.ContainerID)
 	if err != nil {
 		return fmt.Errorf("failed to connect to kindnet daemon: %w", err)
 	}
@@ -76,6 +94,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return fmt.Errorf("invalid kindnet response: %w", err)
 	}
+
+	// deallocate the IP if for any reason we fail to add the network interface
+	defer func() {
+		if err != nil {
+			release(args.ContainerID)
+		}
+	}()
 
 	var response apis.NetworkConfig
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -125,12 +150,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 	defer rootNs.Close()
 
-	/*
-		mtu := 1500
-		if response.MTU > 0 {
-			mtu = response.MTU
-		}
-	*/
+	mtu := 1500
+	if response.MTU > 0 {
+		mtu = response.MTU
+	}
+
 	ifName := getInterfaceName()
 	// to avoid golang problem with goroutines we create the socket in the
 	// namespace and use it directly
@@ -156,8 +180,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 	nameData := nl.NewRtAttr(unix.IFLA_IFNAME, nl.ZeroTerminated(defaultInterface))
 	req.AddData(nameData)
 
-	// mtuData := nl.NewRtAttr(unix.IFLA_MTU, nl.Uint32Attr(uint32(mtu)))
-	// req.AddData(mtuData)
+	mtuData := nl.NewRtAttr(unix.IFLA_MTU, nl.Uint32Attr(uint32(mtu)))
+	req.AddData(mtuData)
 
 	// base namespace the container
 	val := nl.Uint32Attr(uint32(containerNs))
@@ -173,8 +197,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 	nl.NewIfInfomsgChild(peer, unix.AF_UNSPEC)
 	peer.AddRtAttr(unix.IFLA_IFNAME, nl.ZeroTerminated(ifName))
 
-	// valRoot := nl.Uint32Attr(uint32(rootNs))
-	// peer.AddRtAttr(unix.IFLA_NET_NS_FD, valRoot)
+	valRoot := nl.Uint32Attr(uint32(rootNs))
+	peer.AddRtAttr(unix.IFLA_NET_NS_FD, valRoot)
 
 	req.AddData(linkInfo)
 
@@ -186,14 +210,29 @@ func cmdAdd(args *skel.CmdArgs) error {
 	// don't accept Router Advertisements
 	_ = os.WriteFile(fmt.Sprintf("net/ipv6/conf/%s/accept_ra", ifName), []byte(strconv.Itoa(0)), 0640)
 
-	nsLink, err := nhNs.LinkByName(ifName)
+	// best effort to set the loopback interface up
+	loLink, err := nhNs.LinkByName("lo")
+	if err != nil {
+		return fmt.Errorf("could not get interface loopback on namespace %s : %w", args.Netns, err)
+	}
+	_ = nhNs.LinkSetUp(loLink)
+
+	nsLink, err := nhNs.LinkByName(defaultInterface)
 	if err != nil {
 		return fmt.Errorf("could not get interface %s on namespace %s : %w", defaultInterface, args.Netns, err)
 	}
 
-	hostLink, err := netlink.LinkByName(defaultInterface)
+	if err = nhNs.LinkSetUp(nsLink); err != nil {
+		return fmt.Errorf("failed to set interface %s up: %v", defaultInterface, err)
+	}
+
+	hostLink, err := netlink.LinkByName(ifName)
 	if err != nil {
-		return fmt.Errorf("could not get interface %s on namespace %s : %w", defaultInterface, args.Netns, err)
+		return fmt.Errorf("could not get interface %s on namespace %s : %w", ifName, args.Netns, err)
+	}
+
+	if err = netlink.LinkSetUp(hostLink); err != nil {
+		return fmt.Errorf("failed to set interface %s up: %v", ifName, err)
 	}
 
 	// only set the default gateway once per IP family
@@ -224,12 +263,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 		// set the route from the host to the network namespace
 		route := netlink.Route{LinkIndex: hostLink.Attrs().Index, Dst: address.IPNet}
 		if err := netlink.RouteAdd(&route); err != nil {
-			return fmt.Errorf("could not add default route on namespace %s : %w", args.Netns, err)
+			return fmt.Errorf("could not add route to the container interface %s : %w", hostLink.Attrs().Name, err)
 		}
-	}
-
-	if err = nhNs.LinkSetUp(nsLink); err != nil {
-		return fmt.Errorf("failed to set interface %s up: %v", ifName, err)
 	}
 
 	return result.Print()
@@ -244,6 +279,8 @@ func cmdDel(args *skel.CmdArgs) error {
 	if args.Netns == "" {
 		return nil
 	}
+
+	release(args.ContainerID)
 
 	containerNs, err := netns.GetFromPath(args.Netns)
 	if err != nil {
@@ -267,6 +304,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete %q: %v", args.IfName, err)
 	}
+
 	return nil
 }
 

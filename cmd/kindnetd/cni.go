@@ -66,6 +66,7 @@ func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
 		return nil, err
 	}
 
+	klog.V(2).Infof("created allocator for cidr %s", cidr.String())
 	return &Allocator{
 		cidr:     cidr,
 		size:     size,
@@ -174,6 +175,10 @@ type CNIServer struct {
 	listener    net.Listener
 	mtu         int
 
+	// track the allocated IPs by containerid so we can release them
+	mu           sync.Mutex
+	containerIPs map[string][]string
+
 	nodeName    string
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
@@ -196,11 +201,12 @@ func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CN
 	}
 
 	c := &CNIServer{
-		nodeName:    nodeName,
-		nodeLister:  nodeInformer.Lister(),
-		nodesSynced: nodeInformer.Informer().HasSynced,
-		listener:    listener,
-		mtu:         mtu,
+		nodeName:     nodeName,
+		nodeLister:   nodeInformer.Lister(),
+		nodesSynced:  nodeInformer.Informer().HasSynced,
+		listener:     listener,
+		mtu:          mtu,
+		containerIPs: map[string][]string{},
 	}
 
 	return c, nil
@@ -228,6 +234,8 @@ func (c *CNIServer) Run(ctx context.Context) error {
 		return err
 	}
 
+	klog.Info("Allocating Pod IPs from following ranges %v", ranges)
+
 	for _, cidr := range ranges {
 		prefix, err := netip.ParsePrefix(cidr)
 		if err != nil {
@@ -249,6 +257,8 @@ func (c *CNIServer) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	klog.Infof("IPs %v already in use by Pods", ips)
 	for _, ip := range ips {
 		address, err := netip.ParseAddr(ip)
 		if err != nil {
@@ -263,39 +273,77 @@ func (c *CNIServer) Run(ctx context.Context) error {
 				_ = alloc.AllocateAddress(address)
 			}
 		}
-
 	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ipam", func(w http.ResponseWriter, r *http.Request) {
-		result := apis.NetworkConfig{
-			MTU: c.mtu,
-		}
-		for _, v4alloc := range c.allocatorV4 {
-			addr, err := v4alloc.Allocate()
-			if err != nil {
-				continue
-			}
-			result.IPs = append(result.IPs, addr.String())
-			break
-		}
-		for _, v6alloc := range c.allocatorV6 {
-			addr, err := v6alloc.Allocate()
-			if err != nil {
-				continue
-			}
-			result.IPs = append(result.IPs, addr.String())
-			break
-		}
-		out, err := json.Marshal(result)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			w.WriteHeader(http.StatusBadGateway)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, err = w.Write(out)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+
+		if r.Method == http.MethodGet {
+			result := apis.NetworkConfig{
+				MTU: c.mtu,
+			}
+			for _, v4alloc := range c.allocatorV4 {
+				addr, err := v4alloc.Allocate()
+				if err != nil {
+					continue
+				}
+				result.IPs = append(result.IPs, addr.String())
+				break
+			}
+			for _, v6alloc := range c.allocatorV6 {
+				addr, err := v6alloc.Allocate()
+				if err != nil {
+					continue
+				}
+				result.IPs = append(result.IPs, addr.String())
+				break
+			}
+			out, err := json.Marshal(result)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write(out)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			c.mu.Lock()
+			c.containerIPs[id] = result.IPs
+			c.mu.Unlock()
+
+			klog.V(2).Infof("Allocating IPs %v and MTU %d", result.IPs, result.MTU)
+		} else if r.Method == http.MethodDelete {
+			c.mu.Lock()
+			ips := c.containerIPs[id]
+			for _, ip := range ips {
+				address, err := netip.ParseAddr(ip)
+				if err != nil {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				if address.Is4() {
+					for _, alloc := range c.allocatorV4 {
+						alloc.Release(address)
+					}
+				} else {
+					for _, alloc := range c.allocatorV6 {
+						alloc.Release(address)
+					}
+				}
+			}
+			c.mu.Unlock()
+
+			klog.V(2).Infof("Releasing IPs %v", ips)
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusNotImplemented)
 		}
 	})
 
@@ -400,6 +448,7 @@ func WriteCNIConfig() (err error) {
 		_ = os.Remove(cniFile)
 		return err
 	}
+	klog.Infof("CNI config file succesfully written")
 	return nil
 }
 
