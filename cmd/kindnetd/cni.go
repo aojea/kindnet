@@ -234,7 +234,7 @@ func (c *CNIServer) Run(ctx context.Context) error {
 		return err
 	}
 
-	klog.Info("Allocating Pod IPs from following ranges %v", ranges)
+	klog.Infof("Allocating Pod IPs from following ranges %v", ranges)
 
 	for _, cidr := range ranges {
 		prefix, err := netip.ParsePrefix(cidr)
