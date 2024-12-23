@@ -403,6 +403,12 @@ func cmdDel(args *skel.CmdArgs) error {
 			v6 = true
 		}
 	}
+	// if we don't have an answer we need to make our best to clean
+	// us much as possible to not leak entries on the map
+	// TODO: Hostports are better handled via kindnetd but watching all
+	// pods on the node to get the data from the pod.Spec.Containers[*]
+	// is expensive and we try to avoid it.
+	blindMode := (!v4 && !v6)
 
 	containerNs, err := netns.GetFromPath(args.Netns)
 	if err != nil {
@@ -444,29 +450,25 @@ func cmdDel(args *skel.CmdArgs) error {
 					continue
 				}
 
-				if ip.Is4() {
+				if (ip.Is4() && v4) || blindMode {
 					tx.Delete(&knftables.Element{
 						Map: hostPortMapv4,
 						Key: []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
 					})
-					err = nft.Run(context.Background(), tx)
-					if err != nil {
-						return err
-					}
-				} else {
+				} else if (ip.Is6() && v6) || blindMode {
 					tx.Delete(&knftables.Element{
 						Map: hostPortMapv6,
 						Key: []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
 					})
 				}
 			} else {
-				if v4 {
+				if v4 || blindMode {
 					tx.Delete(&knftables.Element{
 						Map: hostPortMapv4,
 						Key: []string{"0.0.0.0/0", e.Protocol, strconv.Itoa(e.HostPort)},
 					})
 				}
-				if v6 {
+				if v6 || blindMode {
 					tx.Delete(&knftables.Element{
 						Map: hostPortMapv6,
 						Key: []string{"::/0", e.Protocol, strconv.Itoa(e.HostPort)},
@@ -476,7 +478,7 @@ func cmdDel(args *skel.CmdArgs) error {
 		}
 
 		err = nft.Run(context.Background(), tx)
-		if err != nil {
+		if err != nil && !blindMode {
 			return fmt.Errorf("failed to remove nftables for portmaps %s: %v", tx.String(), err)
 		}
 	}
