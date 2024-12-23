@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestAllocater(t *testing.T) {
+func TestAllocator(t *testing.T) {
 	a, err := NewAllocator(netip.MustParsePrefix("192.168.1.0/25"), 10)
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +44,39 @@ func TestAllocater(t *testing.T) {
 	ip, err = a.Allocate()
 	if err == nil {
 		t.Fatalf("unexpected success %s", ip.String())
+	}
+}
+
+func TestAllocatorV6(t *testing.T) {
+	a, err := NewAllocator(netip.MustParsePrefix("2001:db8::/64"), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// can not allocate on the reserved space
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::2"))
+	if err == nil {
+		t.Fatal("can not alllocate on the reserved space")
+	}
+
+	// let's try some allocations
+	var i uint64
+	for i = 0; i < 100; i++ {
+		_, err := a.Allocate()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// release and allocate manually
+	a.Release(netip.MustParseAddr("2001:db8::aa"))
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// it should fail to allocate since it is alreadya allocated
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"))
+	if err == nil {
+		t.Fatalf("unexpected success for IP 2001:db8::aa")
 	}
 
 }

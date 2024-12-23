@@ -45,13 +45,13 @@ type Allocator struct {
 func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
 	var size uint64
 	hostsBits := cidr.Addr().BitLen() - cidr.Bits()
-	if hostsBits > 64 {
+	if hostsBits >= 64 {
 		size = math.MaxUint64
 	} else {
 		size = uint64(1) << uint(hostsBits)
 	}
 	if size < uint64(reserved) {
-		return nil, fmt.Errorf("range too short")
+		return nil, fmt.Errorf("range too short %d available %d reserved", size, reserved)
 	}
 	// Caching the first, offset and last addresses allows to optimize
 	// the search loops by using the netip.Addr iterator instead
