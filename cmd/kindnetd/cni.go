@@ -46,7 +46,7 @@ func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
 	var size uint64
 	hostsBits := cidr.Addr().BitLen() - cidr.Bits()
 	if hostsBits >= 64 {
-		size = math.MaxUint64
+		size = math.MaxInt64
 	} else {
 		size = uint64(1) << uint(hostsBits)
 	}
@@ -69,7 +69,7 @@ func NewAllocator(cidr netip.Prefix, reserved int) (*Allocator, error) {
 		return nil, err
 	}
 
-	klog.V(2).Infof("created allocator for cidr %s", cidr.String())
+	klog.Infof("created allocator for cidr %s, first %s last %s", cidr.String(), ipFirst, ipLast)
 	return &Allocator{
 		cidr:     cidr,
 		size:     size,
