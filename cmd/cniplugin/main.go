@@ -282,16 +282,29 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 		}
 		// set the default gateway inside the container
 		if ipconfig.Version == "6" && !v6set {
-			ip := net.ParseIP(response.GatewayV6)
-			if ip == nil {
-				return fmt.Errorf("invalid ip address %s", address)
+			// we use the link-local from the outer veth as gateway
+			addresses, err := netlink.AddrList(hostLink, netlink.FAMILY_V6)
+			if err != nil {
+				return fmt.Errorf("could not get IPv6 address from host interface %s : %w", hostLink.Attrs().Name, err)
 			}
-			routeGw.Gw = ip
+			for _, address := range addresses {
+				if address.IP.IsLinkLocalUnicast() {
+					routeGw.Gw = address.IP
+				}
+			}
+			if routeGw.Gw == nil {
+				return fmt.Errorf("could not get link local IPv6 addressfrom host interface %s : %w", hostLink.Attrs().Name, err)
+			}
 			routeGw.Dst = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 0)}
 			if err := nhNs.RouteAdd(&routeGw); err != nil {
 				return fmt.Errorf("could not add default route on namespace %s : %w", args.Netns, err)
 			}
 			// set the route from the host to the network namespace
+			ip := net.ParseIP(response.GatewayV6)
+			if ip == nil {
+				return fmt.Errorf("invalid ip address %s", address)
+			}
+			routeGw.Gw = ip
 			route := netlink.Route{
 				LinkIndex: hostLink.Attrs().Index,
 				Src:       ip,
