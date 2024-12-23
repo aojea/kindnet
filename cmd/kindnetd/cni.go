@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/aojea/kindnet/pkg/apis"
+	"sigs.k8s.io/knftables"
 
 	"github.com/vishvananda/netlink"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -28,6 +29,7 @@ import (
 	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 )
 
 type Allocator struct {
@@ -215,12 +217,87 @@ func NewCNIServer(nodeName string, nodeInformer coreinformers.NodeInformer) (*CN
 
 func (c *CNIServer) Run(ctx context.Context) error {
 	defer c.listener.Close()
+
+	// Write nftables for the portmap functionality
+	nft, err := knftables.New(knftables.InetFamily, apis.PluginName)
+	if err != nil {
+		return fmt.Errorf("portmap failure, can not start nftables:%v", err)
+	}
+
+	tx := nft.NewTransaction()
+
+	tx.Add(&knftables.Table{
+		Comment: ptr.To("rules for hostports"),
+	})
+	tx.Add(&knftables.Map{
+		Name:  apis.HostPortMapv4,
+		Type:  "ipv4_addr . inet_proto . inet_service : ipv4_addr . inet_service",
+		Flags: []knftables.SetFlag{knftables.IntervalFlag},
+	})
+	tx.Add(&knftables.Map{
+		Name:  apis.HostPortMapv6,
+		Type:  "ipv6_addr . inet_proto . inet_service : ipv6_addr . inet_service",
+		Flags: []knftables.SetFlag{knftables.IntervalFlag},
+	})
+
+	tx.Add(&knftables.Chain{
+		Name:     "prerouting",
+		Type:     knftables.PtrTo(knftables.NATType),
+		Hook:     knftables.PtrTo(knftables.PreroutingHook),
+		Priority: knftables.PtrTo(knftables.DNATPriority),
+	})
+	tx.Flush(&knftables.Chain{
+		Name: "prerouting",
+	})
+	tx.Add(&knftables.Rule{
+		Chain: "prerouting",
+		Rule:  "dnat ip to ip daddr . ip protocol . th dport map @" + apis.HostPortMapv4,
+	})
+
+	/*
+		tx.Add(&knftables.Rule{
+			Chain: "prerouting",
+			Rule:  "dnat to ip6 daddr . meta l4proto . th dport map @" + hostPortMapv6,
+		})
+	*/
+
+	tx.Add(&knftables.Chain{
+		Name:     "output",
+		Type:     knftables.PtrTo(knftables.NATType),
+		Hook:     knftables.PtrTo(knftables.OutputHook),
+		Priority: knftables.PtrTo(knftables.DNATPriority),
+	})
+	tx.Flush(&knftables.Chain{
+		Name: "output",
+	})
+	tx.Add(&knftables.Rule{
+		Chain: "output",
+		Rule:  "meta oifname != lo return",
+	})
+
+	tx.Add(&knftables.Rule{
+		Chain: "output",
+		Rule:  "dnat ip to ip daddr . ip protocol . th dport map @" + apis.HostPortMapv4,
+	})
+
+	/*
+		tx.Add(&knftables.Rule{
+			Chain: "output",
+			Rule:  "dnat to ip6 daddr . meta l4proto . th dport map @" + hostPortMapv6,
+		})
+	*/
+
+	err = nft.Run(ctx, tx)
+	if err != nil {
+		return fmt.Errorf("failed to add nftables for portmaps %s: %v", tx.String(), err)
+	}
+
 	if ok := cache.WaitForNamedCacheSync("kindnet-cni", ctx.Done(), c.nodesSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
 	var ranges []string
-	err := wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (done bool, err error) {
+	err = wait.PollUntilContextCancel(ctx, time.Second, true, func(ctx context.Context) (done bool, err error) {
 		node, err := c.nodeLister.Get(c.nodeName)
 		if err != nil || node == nil {
 			return false, nil
@@ -353,6 +430,11 @@ func (c *CNIServer) Run(ctx context.Context) error {
 			klog.V(2).Infof("Allocating IPs %v and MTU %d", result.IPs, result.MTU)
 		case http.MethodDelete:
 			c.mu.Lock()
+			result := apis.NetworkConfig{
+				GatewayV4: gatewayV4,
+				GatewayV6: gatewayV6,
+				MTU:       c.mtu,
+			}
 			ips := c.podIPs[id]
 			for _, ip := range ips {
 				address, err := netip.ParseAddr(ip)
@@ -360,6 +442,7 @@ func (c *CNIServer) Run(ctx context.Context) error {
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
+				result.IPs = append(result.IPs, address.String())
 				if address.Is4() {
 					for _, alloc := range c.allocatorV4 {
 						alloc.Release(address)
@@ -373,7 +456,17 @@ func (c *CNIServer) Run(ctx context.Context) error {
 			c.mu.Unlock()
 
 			klog.V(2).Infof("Releasing IPs %v", ips)
-			w.WriteHeader(http.StatusOK)
+			out, err := json.Marshal(result)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, err = w.Write(out)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 		default:
 			w.WriteHeader(http.StatusNotImplemented)
 		}
@@ -465,7 +558,8 @@ const (
 	"name": "kindnet",
 	"plugins": [
 		{
-			"type": "cni-kindnet"
+			"type": "cni-kindnet",
+			"capabilities": {"portMappings": true}
 		}
 	]
 }

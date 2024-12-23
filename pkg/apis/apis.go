@@ -1,6 +1,11 @@
 package apis
 
-const SocketPath = "/run/cni-kindnet.sock"
+const (
+	SocketPath    = "/run/cni-kindnet.sock"
+	PluginName    = "cni-kindnet"
+	HostPortMapv4 = "hostport-map-v4"
+	HostPortMapv6 = "hostport-map-v6"
+)
 
 type NetworkConfig struct {
 	IPs       []string `json:"ips"`

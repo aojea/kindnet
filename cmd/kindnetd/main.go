@@ -288,6 +288,7 @@ func main() {
 	}
 	go func() {
 		err = cniServer.Run(ctx)
+		// exit if the CNI server can not run
 		if err != nil && ctx.Err() == nil {
 			klog.Fatalf("can not run CNI server: %v", err)
 		}

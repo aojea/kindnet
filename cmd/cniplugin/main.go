@@ -10,11 +10,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 
 	"github.com/aojea/kindnet/pkg/apis"
 	"golang.org/x/sys/unix"
+	"sigs.k8s.io/knftables"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
@@ -33,7 +35,9 @@ import (
 // xref: https://gist.github.com/aojea/571c29f1b35e5c411f8297a47227d39d
 
 const (
-	pluginName = "cni-kindnet"
+	pluginName    = apis.PluginName
+	hostPortMapv4 = apis.HostPortMapv4
+	hostPortMapv6 = apis.HostPortMapv6
 	// containerd hardcodes this value
 	// https://github.com/containerd/containerd/blob/23500b8015c6f5c624ec630fd1377a990e9eccfb/internal/cri/server/helpers.go#L68
 	defaultInterface = "eth0"
@@ -41,9 +45,6 @@ const (
 )
 
 var (
-	defaultV4gw = &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 0)}
-	defaultV6gw = &net.IPNet{IP: net.IPv6zero, Mask: net.CIDRMask(0, 0)}
-
 	// IPAM is provided via an unix socket to allow dynamic configuration
 	client = http.Client{
 		Transport: &http.Transport{
@@ -54,28 +55,60 @@ var (
 	}
 )
 
-func release(id string) {
+// release does not return an error because if kindnetd is not available
+// it will reconcile the allocated IPs so no need to block Pod deletion
+func release(id string) *apis.NetworkConfig {
 	// create a new DELETE request
-	req, err := http.NewRequest("DELETE", ipamURL+"?id="+id, nil)
+	req, err := http.NewRequest(http.MethodDelete, ipamURL+"?id="+id, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
-		return
+		return nil
 	}
 
 	// send the request
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
-		return
+		return nil
 	}
 	defer resp.Body.Close()
 
-	// read the response body
-	_, _ = io.Copy(io.Discard, resp.Body)
+	// Read the response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+		return nil
+	}
+
+	var response apis.NetworkConfig
+	if err := json.Unmarshal(body, &response); err != nil {
+		fmt.Fprintf(os.Stderr, "error releasing network for container id %s : %v", id, err)
+		return nil
+	}
+
+	return &response
+}
+
+// PortMapEntry corresponds to a single entry in the port_mappings argument,
+// see CNI CONVENTIONS.md
+type PortMapEntry struct {
+	HostPort      int    `json:"hostPort"`
+	ContainerPort int    `json:"containerPort"`
+	Protocol      string `json:"protocol"`
+	HostIP        string `json:"hostIP,omitempty"`
+}
+
+type PortMapConf struct {
+	types.NetConf
+	RuntimeConfig struct {
+		PortMaps []PortMapEntry `json:"portMappings,omitempty"`
+	} `json:"runtimeConfig,omitempty"`
 }
 
 func cmdAdd(args *skel.CmdArgs) (err error) {
-	conf := types.NetConf{}
+	var containerIPv4, containerIPv6 string
+
+	conf := PortMapConf{}
 	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
 		return fmt.Errorf("failed to load netconf: %v", err)
 	}
@@ -120,6 +153,9 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 		if ip.To4() == nil {
 			version = "6"
 			mask = 128
+			containerIPv6 = address
+		} else {
+			containerIPv4 = address
 		}
 		result.IPs = append(result.IPs,
 			&current.IPConfig{
@@ -286,14 +322,66 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 			}
 			v4set = true
 		}
+	}
 
+	// portmaps
+	if len(conf.RuntimeConfig.PortMaps) > 0 {
+		// Write nftables for the portmap functionality
+		nft, err := knftables.New(knftables.InetFamily, pluginName)
+		if err != nil {
+			return fmt.Errorf("portmap failure, can not start nftables:%v", err)
+		}
+
+		tx := nft.NewTransaction()
+		// Set up this container
+		for _, e := range conf.RuntimeConfig.PortMaps {
+			if e.HostIP != "" {
+				ip, err := netip.ParseAddr(e.HostIP)
+				if err != nil {
+					continue
+				}
+
+				if ip.Is4() && containerIPv4 != "" {
+					tx.Add(&knftables.Element{
+						Map:   hostPortMapv4,
+						Key:   []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
+						Value: []string{containerIPv4, strconv.Itoa(e.ContainerPort)},
+					})
+				} else if ip.Is6() && containerIPv6 != "" {
+					tx.Add(&knftables.Element{
+						Map:   hostPortMapv6,
+						Key:   []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
+						Value: []string{containerIPv6, strconv.Itoa(e.ContainerPort)},
+					})
+				}
+			} else {
+				if containerIPv4 != "" {
+					tx.Add(&knftables.Element{
+						Map:   hostPortMapv4,
+						Key:   []string{"0.0.0.0/0", e.Protocol, strconv.Itoa(e.HostPort)},
+						Value: []string{containerIPv4, strconv.Itoa(e.ContainerPort)},
+					})
+				} else if containerIPv6 != "" {
+					tx.Add(&knftables.Element{
+						Map:   hostPortMapv6,
+						Key:   []string{"::/0", e.Protocol, strconv.Itoa(e.HostPort)},
+						Value: []string{containerIPv6, strconv.Itoa(e.ContainerPort)},
+					})
+				}
+			}
+
+		}
+		err = nft.Run(context.Background(), tx)
+		if err != nil {
+			return fmt.Errorf("failed to add nftables for portmaps %s: %v", tx.String(), err)
+		}
 	}
 
 	return result.Print()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	conf := types.NetConf{}
+	conf := PortMapConf{}
 	if err := json.Unmarshal(args.StdinData, &conf); err != nil {
 		return fmt.Errorf("failed to load netconf: %v", err)
 	}
@@ -302,7 +390,19 @@ func cmdDel(args *skel.CmdArgs) error {
 		return nil
 	}
 
-	release(args.ContainerID)
+	var v4, v6 bool
+	response := release(args.ContainerID)
+	for _, address := range response.IPs {
+		ip, err := netip.ParseAddr(address)
+		if err != nil {
+			continue
+		}
+		if ip.Is4() {
+			v4 = true
+		} else if ip.Is6() {
+			v6 = true
+		}
+	}
 
 	containerNs, err := netns.GetFromPath(args.Netns)
 	if err != nil {
@@ -327,6 +427,59 @@ func cmdDel(args *skel.CmdArgs) error {
 		return fmt.Errorf("failed to delete %q: %v", args.IfName, err)
 	}
 
+	// portmaps
+	if len(conf.RuntimeConfig.PortMaps) > 0 {
+		nft, err := knftables.New(knftables.InetFamily, pluginName)
+		if err != nil {
+			return fmt.Errorf("portmap failure, can not start nftables:%v", err)
+		}
+
+		tx := nft.NewTransaction()
+
+		// Set up this container
+		for _, e := range conf.RuntimeConfig.PortMaps {
+			if e.HostIP != "" {
+				ip, err := netip.ParseAddr(e.HostIP)
+				if err != nil {
+					continue
+				}
+
+				if ip.Is4() {
+					tx.Delete(&knftables.Element{
+						Map: hostPortMapv4,
+						Key: []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
+					})
+					err = nft.Run(context.Background(), tx)
+					if err != nil {
+						return err
+					}
+				} else {
+					tx.Delete(&knftables.Element{
+						Map: hostPortMapv6,
+						Key: []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
+					})
+				}
+			} else {
+				if v4 {
+					tx.Delete(&knftables.Element{
+						Map: hostPortMapv4,
+						Key: []string{"0.0.0.0/0", e.Protocol, strconv.Itoa(e.HostPort)},
+					})
+				}
+				if v6 {
+					tx.Delete(&knftables.Element{
+						Map: hostPortMapv6,
+						Key: []string{"::/0", e.Protocol, strconv.Itoa(e.HostPort)},
+					})
+				}
+			}
+		}
+
+		err = nft.Run(context.Background(), tx)
+		if err != nil {
+			return fmt.Errorf("failed to remove nftables for portmaps %s: %v", tx.String(), err)
+		}
+	}
 	return nil
 }
 
@@ -334,7 +487,10 @@ func main() {
 	skel.PluginMainFuncs(skel.CNIFuncs{
 		Add: cmdAdd,
 		Del: cmdDel,
-	}, version.All, "CNI plugin kindnet v0.1")
+	},
+		version.PluginSupports("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.4.0"),
+		"CNI plugin "+pluginName,
+	)
 }
 
 func getInterfaceName() string {
