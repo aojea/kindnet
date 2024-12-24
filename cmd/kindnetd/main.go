@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/dnscache"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
 	"github.com/aojea/kindnet/pkg/network"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
@@ -103,9 +104,6 @@ func main() {
 		err := http.ListenAndServe(metricsBindAddress, nil)
 		utilruntime.HandleError(err)
 	}()
-
-	// add metrics
-	registerMetrics()
 
 	// create a Kubernetes client
 	config, err := rest.InClusterConfig()
@@ -263,7 +261,7 @@ func main() {
 	dnsCaching = false // EXPERIMENTAL: it does not work fine
 	if dnsCaching && ipFamily == IPv4Family {
 		klog.Infof("caching DNS cluster traffic")
-		dnsCacheAgent, err := NewDNSCacheAgent(nodeName, nodeInformer)
+		dnsCacheAgent, err := dnscache.NewDNSCacheAgent(nodeName, nodeInformer)
 		if err != nil {
 			klog.Fatalf("error creating dnsCacheAgent agent: %v", err)
 		}
