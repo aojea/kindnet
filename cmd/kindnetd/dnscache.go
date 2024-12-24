@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/network"
+
 	"github.com/vishvananda/netlink"
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/sys/unix"
@@ -199,7 +201,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		if err != nil {
 			return false, nil
 		}
-		podCIDRsv4, podCIDRsv6 := splitCIDRslice(node.Spec.PodCIDRs)
+		podCIDRsv4, podCIDRsv6 := network.SplitCIDRslice(node.Spec.PodCIDRs)
 		klog.V(7).Infof("Got %v and %v from node %s", podCIDRsv4, podCIDRsv6, node.Name)
 		if len(podCIDRsv4) > 0 {
 			d.podCIDRv4 = podCIDRsv4[0]
