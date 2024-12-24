@@ -1,4 +1,4 @@
-module sigs.k8s.io/kind/images/kindnetd
+module github.com/aojea/kindnet
 
 go 1.23.0
 
