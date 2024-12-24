@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aojea/kindnet/pkg/network"
+	kindnetnode "github.com/aojea/kindnet/pkg/node"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sys/unix"
@@ -203,16 +204,16 @@ func main() {
 	}
 
 	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &CNIConfigWriter{
-		path:   cniConfigPath,
-		bridge: useBridge,
-		mtu:    mtu,
+	cniConfigWriter := &kindnetnode.CNIConfigWriter{
+		Path:   kindnetnode.CNIConfigPath,
+		Bridge: useBridge,
+		Mtu:    mtu,
 	}
 	klog.Infof("Configuring CNI path: %s bridge: %v mtu: %d",
-		cniConfigPath, useBridge, mtu)
+		kindnetnode.CNIConfigPath, useBridge, mtu)
 
 	// node controller handles CNI config for our own node and routes to the others
-	nodeController := NewNodeController(nodeName, clientset, nodeInformer, cniConfigWriter)
+	nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer, cniConfigWriter)
 	go func() {
 		err := nodeController.Run(ctx, 5)
 		if err != nil {
