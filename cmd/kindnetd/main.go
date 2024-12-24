@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aojea/kindnet/pkg/dnscache"
+	"github.com/aojea/kindnet/pkg/masq"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
 	"github.com/aojea/kindnet/pkg/network"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
@@ -195,7 +196,7 @@ func main() {
 	if useBridge {
 		// disable offload if required
 		if len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0 {
-			err = SetChecksumOffloading("kind-br", false, false)
+			err = network.SetChecksumOffloading("kind-br", false, false)
 			if err != nil {
 				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
 			}
@@ -223,7 +224,7 @@ func main() {
 	// create an ipMasqAgent
 	if masquerading {
 		klog.Infof("masquerading cluster traffic")
-		masqAgent, err := NewIPMasqAgent(nodeInformer, noMasqueradeCIDRs)
+		masqAgent, err := masq.NewIPMasqAgent(nodeInformer, noMasqueradeCIDRs)
 		if err != nil {
 			klog.Fatalf("error creating masquerading agent: %v", err)
 		}
