@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: APACHE-2.0
 
-package main
+package node
 
 import (
 	"io"
@@ -56,8 +56,8 @@ func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
 	return inputs
 }
 
-// cniConfigPath is where kindnetd will write the computed CNI config
-const cniConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
+// CNIConfigPath is where kindnetd will write the computed CNI config
+const CNIConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
 
 const cniConfigTemplate = `
 {
@@ -136,28 +136,28 @@ const cniConfigTemplateBridge = `
 // CNIConfigWriter no-ops re-writing config with the same inputs
 // NOTE: should only be called from a single goroutine
 type CNIConfigWriter struct {
-	path       string
-	lastInputs CNIConfigInputs
-	mtu        int
-	bridge     bool
+	Path       string
+	LastInputs CNIConfigInputs
+	Mtu        int
+	Bridge     bool
 }
 
 // Write will write the config based on
 func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
-	if reflect.DeepEqual(inputs, c.lastInputs) {
+	if reflect.DeepEqual(inputs, c.LastInputs) {
 		return nil
 	}
 
 	// use an extension not recognized by CNI to write the contents initially
 	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
 	// then we can rename to atomically make the file appear
-	f, err := os.Create(c.path + ".temp")
+	f, err := os.Create(c.Path + ".temp")
 	if err != nil {
 		return err
 	}
 
 	template := cniConfigTemplate
-	if c.bridge {
+	if c.Bridge {
 		template = cniConfigTemplateBridge
 	}
 
@@ -171,12 +171,12 @@ func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
 	_ = f.Close()
 
 	// then we can rename to the target config path
-	if err := os.Rename(f.Name(), c.path); err != nil {
+	if err := os.Rename(f.Name(), c.Path); err != nil {
 		return err
 	}
 
 	// we're safely done now, record the inputs
-	c.lastInputs = inputs
+	c.LastInputs = inputs
 	return nil
 }
 
