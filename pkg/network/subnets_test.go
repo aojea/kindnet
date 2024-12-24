@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: APACHE-2.0
 
-package main
+package network
 
 import (
 	"reflect"
@@ -52,7 +52,7 @@ func Test_splitCIDRs(t *testing.T) {
 			v4CIDRs := sets.New[string]()
 			v6CIDRs := sets.New[string]()
 
-			got, got1 := splitCIDRs(tt.cidrs)
+			got, got1 := SplitCIDRs(tt.cidrs)
 			v4CIDRs.Insert(got...)
 			v6CIDRs.Insert(got1...)
 

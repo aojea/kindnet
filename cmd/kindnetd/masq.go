@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/network"
+
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -25,7 +27,7 @@ func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs s
 	if err != nil {
 		return nil, err
 	}
-	v4, v6 := splitCIDRs(noMasqueradeCIDRs)
+	v4, v6 := network.SplitCIDRs(noMasqueradeCIDRs)
 	return &IPMasqAgent{
 		nft:         nft,
 		nodeLister:  nodeInformer.Lister(),
@@ -136,7 +138,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 
 	// don't masquerade the traffic directed to the Pods
 	for _, node := range nodes {
-		podCIDRsv4, podCIDRsv6 := splitCIDRslice(node.Spec.PodCIDRs)
+		podCIDRsv4, podCIDRsv6 := network.SplitCIDRslice(node.Spec.PodCIDRs)
 		klog.V(7).Infof("Got %v and %v from node %s", podCIDRsv4, podCIDRsv6, node.Name)
 		if len(podCIDRsv4) > 0 {
 			v4CIDRs.Insert(podCIDRsv4...)
