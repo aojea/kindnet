@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aojea/kindnet/pkg/dnscache"
+	"github.com/aojea/kindnet/pkg/fastpath"
 	"github.com/aojea/kindnet/pkg/masq"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
@@ -65,6 +66,7 @@ var (
 	noMasqueradeCIDRs    string
 	controlPlaneEndpoint string
 	metricsBindAddress   string
+	fastpathThreshold    int
 )
 
 func init() {
@@ -76,6 +78,7 @@ func init() {
 	flag.StringVar(&noMasqueradeCIDRs, "no-masquerade-cidr", "", "Comma seperated list of CIDRs that will not be masqueraded.")
 	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
 	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":19080", "The IP address and port for the metrics server to serve on")
+	flag.IntVar(&fastpathThreshold, "fastpath-threshold", 20, "The number of packets after the traffic is offloaded to the fast path, zero disables it (default 20). Set to zero to disable it")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -245,6 +248,22 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping dnsCacheAgent")
+	}
+
+	if fastpathThreshold > 0 {
+		klog.Infof("Fast path enabled for flows larger than %d packets", fastpathThreshold)
+		fastpathAgent, err := fastpath.NewFastpathAgent(fastpathThreshold)
+		if err != nil {
+			klog.Fatalf("error creating fastpath agent: %v", err)
+		}
+		go func() {
+			defer fastpathAgent.CleanRules()
+			if err := fastpathAgent.Run(ctx); err != nil {
+				klog.Infof("error running fastpathAgent: %v", err)
+			}
+		}()
+	} else {
+		klog.Info("Skipping fastpathAgent")
 	}
 
 	// network policies
