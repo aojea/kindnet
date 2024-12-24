@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: APACHE-2.0
 
-package main
+package nat64
 
 import (
 	"context"
@@ -67,9 +67,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 			}
 			if err := unix.SetsockoptInt(int(fd), unix.SOL_IPV6, unix.IPV6_RECVORIGDSTADDR, 1); err != nil {
 				klog.Fatalf("error setting IPV6_RECVORIGDSTADDR: %v", err)
-
 			}
-
 		})
 	},
 	}

@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/network"
+
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sys/unix"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -182,7 +184,7 @@ func main() {
 		ipFamily = IPv6Family
 	}
 
-	mtu, err := GetMTU(unix.AF_UNSPEC)
+	mtu, err := network.GetMTU(unix.AF_UNSPEC)
 	klog.Infof("setting mtu %d for CNI \n", mtu)
 	if err != nil {
 		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
