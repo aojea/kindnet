@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"time"
 
+	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
 	"github.com/aojea/kindnet/pkg/network"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
 
@@ -242,7 +243,7 @@ func main() {
 	// create an nat64 agent if nat64 is enabled and is an IPv6 only cluster
 	if nat64 && ipFamily == IPv6Family {
 		klog.Infof("detected IPv6; starting nat64 agent")
-		nat64Agent, err := NewNAT64Agent()
+		nat64Agent, err := kindnetnat64.NewNAT64Agent()
 		if err != nil {
 			klog.Fatalf("error creating nat64 agent: %v", err)
 		}
