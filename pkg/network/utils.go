@@ -2,7 +2,6 @@ package network
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/vishvananda/netlink"
 	"k8s.io/klog/v2"
@@ -23,16 +22,11 @@ func GetMTU(ipFamily int) (int, error) {
 
 // getInterfaceMTU finds the mtu for the interface
 func getInterfaceMTU(iface string) (int, error) {
-	interfaces, err := net.Interfaces()
+	link, err := netlink.LinkByName(iface)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("no %s device found", iface)
 	}
-	for _, inter := range interfaces {
-		if inter.Name == iface {
-			return inter.MTU, nil
-		}
-	}
-	return 0, fmt.Errorf("no %s device found", iface)
+	return link.Attrs().MTU, nil
 }
 
 func GetDefaultGwInterface(ipFamily int) (string, error) {

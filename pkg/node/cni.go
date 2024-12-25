@@ -3,187 +3,89 @@
 package node
 
 import (
+	"bytes"
+	"crypto/md5"
+	"fmt"
+	"html/template"
 	"io"
 	"os"
-	"reflect"
-	"text/template"
+	"path/filepath"
 
-	"github.com/pkg/errors"
-
-	corev1 "k8s.io/api/core/v1"
-	utilsnet "k8s.io/utils/net"
+	"k8s.io/klog/v2"
 )
 
 /* cni config management */
-
-// CNIConfigInputs is supplied to the CNI config template
-type CNIConfigInputs struct {
-	PodCIDRs      []string
-	RangeStart    []string
-	DefaultRoutes []string
-	Mtu           int
-}
-
-// ComputeCNIConfigInputs computes the template inputs for CNIConfigWriter
-func ComputeCNIConfigInputs(node *corev1.Node) CNIConfigInputs {
-	inputs := CNIConfigInputs{}
-	podCIDRs, _ := utilsnet.ParseCIDRs(node.Spec.PodCIDRs) // already validated
-	for _, podCIDR := range podCIDRs {
-		inputs.PodCIDRs = append(inputs.PodCIDRs, podCIDR.String())
-		// define the default route
-		if utilsnet.IsIPv4CIDR(podCIDR) {
-			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "0.0.0.0/0")
-		} else {
-			inputs.DefaultRoutes = append(inputs.DefaultRoutes, "::/0")
-		}
-		// reserve the first IPs of the range
-		size := utilsnet.RangeSize(podCIDR)
-		podCapacity := node.Status.Capacity.Pods().Value()
-		if podCapacity == 0 {
-			podCapacity = 110 // default to 110
-		}
-		rangeStart := ""
-		offset := size - podCapacity
-		if offset > 10 { // reserve the first 10 addresses of the Pod range if there is capacity
-			startAddress, err := utilsnet.GetIndexedIP(podCIDR, 10)
-			if err == nil {
-				rangeStart = startAddress.String()
-			}
-		}
-		inputs.RangeStart = append(inputs.RangeStart, rangeStart)
-
-	}
-	return inputs
-}
-
-// CNIConfigPath is where kindnetd will write the computed CNI config
-const CNIConfigPath = "/etc/cni/net.d/10-kindnet.conflist"
-
-const cniConfigTemplate = `
-{
-	"cniVersion": "0.4.0",
-	"name": "kindnet",
-	"plugins": [
-	{
-		"type": "ptp",
-		"ipMasq": false,
-		"ipam": {
-			"type": "host-local",
-			"dataDir": "/run/cni-ipam-state",
-			"routes": [
-				{{- range $i, $route := .DefaultRoutes}}
-				{{- if gt $i 0 }},{{end}}
-				{ "dst": "{{ $route }}" }
-				{{- end}}
-			],
-			"ranges": [
-				{{- range $i, $cidr := .PodCIDRs}}
-				{{- if gt $i 0 }},{{end}}
-				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
-				{{- end}}
-			]
-		}
-		{{if .Mtu}},
-		"mtu": {{ .Mtu }}
-		{{end}}
-	},
-	{
-		"type": "portmap",
-		"capabilities": {
-			"portMappings": true
-		}
-	}
-	]
+const (
+	// cniConfigPath is where kindnetd will write the computed CNI config
+	cniConfigPath = "/etc/cni/net.d"
+	cniConfigFile = "10-kindnet.conflist"
+	// cniConfig is static as it will get the values from the daemon
+	cniConfig = `{
+  "cniVersion": "0.4.0",
+  "name": "kindnet",
+  "plugins": [
+    {
+      "type": "cni-kindnet",
+      "ranges": [
+	    {{- range $i, $cidr := .PodCIDRs}}
+	    {{- if gt $i 0 }},{{end}}
+        "{{ $cidr }}"
+      {{- end}}
+      ],
+      "capabilities": {"portMappings": true}
+    }
+  ]
 }
 `
+)
 
-const cniConfigTemplateBridge = `
-{
-	"cniVersion": "0.4.0",
-	"name": "kindnet",
-	"plugins": [
-	{
-		"type": "bridge",
-		"bridge": "kind-br",
-		"ipMasq": false,
-		"isGateway": true,
-		"isDefaultGateway": true,
-		"hairpinMode": true,
-		"ipam": {
-			"type": "host-local",
-			"dataDir": "/run/cni-ipam-state",
-			"ranges": [
-				{{- range $i, $cidr := .PodCIDRs}}
-				{{- if gt $i 0 }},{{end}}
-				[ { "subnet": "{{ $cidr }}" {{ if index $.RangeStart $i }}, "rangeStart": "{{ index $.RangeStart $i }}" {{ end -}} } ]
-				{{- end}}
-			]
-		}
-		{{- if .Mtu}},
-		"mtu": {{ .Mtu }}
-		{{- end}}
-	},
-	{
-		"type": "portmap",
-		"capabilities": {
-			"portMappings": true
-		}
-	}
-	]
-}
-`
-
-// CNIConfigWriter no-ops re-writing config with the same inputs
-// NOTE: should only be called from a single goroutine
-type CNIConfigWriter struct {
-	Path       string
-	LastInputs CNIConfigInputs
-	Mtu        int
-	Bridge     bool
-}
-
-// Write will write the config based on
-func (c *CNIConfigWriter) Write(inputs CNIConfigInputs) error {
-	if reflect.DeepEqual(inputs, c.LastInputs) {
-		return nil
-	}
-
-	// use an extension not recognized by CNI to write the contents initially
-	// https://github.com/containerd/go-cni/blob/891c2a41e18144b2d7921f971d6c9789a68046b2/opts.go#L170
-	// then we can rename to atomically make the file appear
-	f, err := os.Create(c.Path + ".temp")
+func WriteCNIConfig(ranges []string) (err error) {
+	// obtain the new config
+	t, err := template.New("cni-json").Parse(cniConfig)
 	if err != nil {
+		return fmt.Errorf("failed to parse cni template: %v", err)
+	}
+	data := struct {
+		PodCIDRs []string
+	}{
+		PodCIDRs: ranges,
+	}
+
+	var buf bytes.Buffer
+	err = t.Execute(&buf, &data)
+	if err != nil {
+		return fmt.Errorf("failed to parse cni template: %w", err)
+	}
+
+	// If the file exists only write it if the content is different
+	cniFile := filepath.Join(cniConfigPath, cniConfigFile)
+
+	f1, err := os.Open(cniFile)
+	if err == nil {
+		defer f1.Close()
+		// Calculate the MD5 checksum of the existing file
+		h1 := md5.New()
+		if _, err := io.Copy(h1, f1); err != nil {
+			return fmt.Errorf("error calculating checksum for file %s: %w", cniFile, err)
+		}
+		// Calculate the MD5 checksum of the new content
+		h2 := md5.New()
+		if _, err := io.Copy(h2, bytes.NewReader(buf.Bytes())); err != nil {
+			return fmt.Errorf("error calculating checksum for generated file: %w", err)
+		}
+
+		// Compare the checksums to write only if the file is different
+		if bytes.Equal(h1.Sum(nil), h2.Sum(nil)) {
+			return nil
+		}
+		_ = os.Remove(cniFile)
+	}
+
+	err = os.WriteFile(cniFile, buf.Bytes(), 0644)
+	if err != nil {
+		_ = os.Remove(cniFile)
 		return err
 	}
-
-	template := cniConfigTemplate
-	if c.Bridge {
-		template = cniConfigTemplateBridge
-	}
-
-	// actually write the config
-	if err := writeCNIConfig(f, template, inputs); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return err
-	}
-	_ = f.Sync()
-	_ = f.Close()
-
-	// then we can rename to the target config path
-	if err := os.Rename(f.Name(), c.Path); err != nil {
-		return err
-	}
-
-	// we're safely done now, record the inputs
-	c.LastInputs = inputs
+	klog.Infof("CNI config file succesfully written")
 	return nil
-}
-
-func writeCNIConfig(w io.Writer, rawTemplate string, data CNIConfigInputs) error {
-	t, err := template.New("cni-json").Parse(rawTemplate)
-	if err != nil {
-		return errors.Wrap(err, "failed to parse cni template")
-	}
-	return t.Execute(w, &data)
 }
