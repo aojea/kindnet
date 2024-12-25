@@ -17,7 +17,6 @@ import (
 	"github.com/aojea/kindnet/pkg/dnscache"
 	"github.com/aojea/kindnet/pkg/masq"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
-	"github.com/aojea/kindnet/pkg/network"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -58,7 +57,6 @@ const (
 )
 
 var (
-	useBridge            bool
 	networkpolicies      bool
 	dnsCaching           bool
 	nat64                bool
@@ -70,7 +68,6 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&useBridge, "cni-bridge", false, "If set, enable the CNI bridge plugin (default is the ptp plugin)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
 	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
 	flag.BoolVar(&nat64, "nat64", true, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true)")
@@ -185,35 +182,8 @@ func main() {
 		ipFamily = IPv6Family
 	}
 
-	mtu, err := network.GetMTU(unix.AF_UNSPEC)
-	klog.Infof("setting mtu %d for CNI \n", mtu)
-	if err != nil {
-		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
-	}
-
-	// CNI_BRIDGE env variable uses the CNI bridge plugin, defaults to ptp
-	useBridge = useBridge || len(os.Getenv("CNI_BRIDGE")) > 0
-	if useBridge {
-		// disable offload if required
-		if len(os.Getenv("DISABLE_CNI_BRIDGE_OFFLOAD")) > 0 {
-			err = network.SetChecksumOffloading("kind-br", false, false)
-			if err != nil {
-				klog.Infof("Failed to disable offloading on interface kind-br: %v", err)
-			}
-		}
-	}
-
-	// used to track if the cni config inputs changed and write the config
-	cniConfigWriter := &kindnetnode.CNIConfigWriter{
-		Path:   kindnetnode.CNIConfigPath,
-		Bridge: useBridge,
-		Mtu:    mtu,
-	}
-	klog.Infof("Configuring CNI path: %s bridge: %v mtu: %d",
-		kindnetnode.CNIConfigPath, useBridge, mtu)
-
 	// node controller handles CNI config for our own node and routes to the others
-	nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer, cniConfigWriter)
+	nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer)
 	go func() {
 		err := nodeController.Run(ctx, 5)
 		if err != nil {

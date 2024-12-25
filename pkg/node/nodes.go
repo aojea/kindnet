@@ -30,19 +30,18 @@ type NodeController struct {
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
 
-	cniConfigWriter *CNIConfigWriter
+	cniDone bool
 }
 
-func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer, cniConfigWriter *CNIConfigWriter) *NodeController {
+func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer) *NodeController {
 	klog.V(2).Info("Creating routes controller")
 
 	c := &NodeController{
-		nodeName:        nodeName,
-		client:          client,
-		nodeLister:      nodeInformer.Lister(),
-		nodesSynced:     nodeInformer.Informer().HasSynced,
-		workqueue:       workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
-		cniConfigWriter: cniConfigWriter,
+		nodeName:    nodeName,
+		client:      client,
+		nodeLister:  nodeInformer.Lister(),
+		nodesSynced: nodeInformer.Informer().HasSynced,
+		workqueue:   workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
 	_, err := nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: c.enqueueNode,
@@ -175,10 +174,14 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 		return syncRoute(node)
 	}
 	// compute the current cni config inputs for our own node
-	err = c.cniConfigWriter.Write(
-		ComputeCNIConfigInputs(node),
-	)
-	return err
+	if len(node.Spec.PodCIDRs) > 0 && !c.cniDone {
+		err := WriteCNIConfig(node.Spec.PodCIDRs)
+		if err != nil {
+			return err
+		}
+		c.cniDone = true
+	}
+	return nil
 }
 
 // GetNodeHostIPs returns the provided node's IP(s); either a single "primary IP" for the

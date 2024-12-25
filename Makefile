@@ -9,6 +9,7 @@ export GOROOT GO111MODULE CGO_ENABLED
 
 build:
 	go build -v -o "$(OUT_DIR)/$(BINARY_NAME)" ./cmd/kindnetd/
+	cd ./cmd/cni-kindnet/ && CGO_ENABLED=1 go build -v -o "$(OUT_DIR)/cni-kindnet" .
 
 clean:
 	rm -rf "$(OUT_DIR)/"
