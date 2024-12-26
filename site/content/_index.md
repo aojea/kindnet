@@ -7,7 +7,7 @@ title: Kindnet
   Learn More <i class="fas fa-arrow-alt-circle-right ms-2"></i>
 </a>
 <a class="btn btn-lg btn-secondary me-3 mb-4" href="https://github.com/aojea/kindnet">
-  Download <i class="fab fa-github ms-2 "></i>
+  GitHub <i class="fab fa-github ms-2 "></i>
 </a>
 <p class="lead mt-5">A Kubernetes Network Driver!</p>
 {{< /blocks/cover >}}

@@ -17,10 +17,4 @@ kubectl create -f
 https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml
 ```
 
-By default, the `ptp` CNI plugin is used, but the `bridge` plugin can be selected by setting the environment
-variable `CNI_BRIDGE` in the `kindnet-cni` container. You can use the following manifest directly:
-
-```sh
-kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet-bridge.yaml
-```
+Kindnet provides IPAM to the Pods and other functionality like Network Policies, check the documentation for more advanced use cases. 
