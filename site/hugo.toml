@@ -1,6 +1,6 @@
 baseURL = 'https://aojea.github.io/kindnet/'
 languageCode = 'en-us'
-title = 'KindNet'
+title = 'Kindnet'
 
 # we use this to disable indexing for the non-production build
 enableRobotsTXT = true
