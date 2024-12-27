@@ -4,8 +4,6 @@ date: 2024-12-27T12:39:58Z
 Weight: 30
 ---
 
-## Enabling Kindnet Fastpath for Accelerated Networking
-
 Kindnet offers a fastpath feature to significantly boost network performance. This feature leverages the kernel's flowtable architecture to offload network traffic processing, reducing latency and increasing throughput.
 
 
