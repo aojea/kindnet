@@ -3,7 +3,7 @@
 KindNet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
 
 
-<p align="center"><img alt="musselgrinho" src="./musselgrinho.jpeg" width="300px" /></p>
+<p align="center"><img alt="musselgrinho" src="./musselgrinho.png" width="300px" /></p>
 
 
 ## Goal
