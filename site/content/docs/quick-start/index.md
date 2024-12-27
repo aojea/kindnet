@@ -4,9 +4,14 @@ date: 2024-12-17T14:47:05Z
 weight: 1
 ---
 
+
+![musselgrinho](./musselgrinho.jpeg)
+
 ## How it Works
 
-KindNet uses a simple veth network interface to connect pods within the same node.  It leverages the host's network stack for external communication, eliminating the need for complex overlay networks.
+Kindnet uses implements Pod networking on Kubernetes clusters, it uses CNI to provide IP and interfacers to Pods, but also provide other advanced functionalities like Network Policies, NAT64, DNS caching, fast path acceleration, ...
+
+It leverages the host's network stack for external communication, eliminating the need for complex overlay networks.
 
 ## Installation
 
