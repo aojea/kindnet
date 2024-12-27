@@ -1,6 +1,7 @@
 ---
 title: "Network Policies"
 date: 2024-12-24T11:30:40Z
+Weight: 20
 ---
 
 ## Kubernetes Network Policies

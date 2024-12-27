@@ -1,6 +1,7 @@
 ---
 title: "Fastpath"
 date: 2024-12-27T12:39:58Z
+Weight: 30
 ---
 
 ## Enabling Kindnet Fastpath for Accelerated Networking
