@@ -1,6 +1,7 @@
 ---
 title: "Configuration Options"
 date: 2024-12-27T12:39:58Z
+Weight: 10
 ---
 
 Kindnet can be customized through the use of flags passed to the kind create cluster command. These flags allow you to adjust various aspects of the network environment.
