@@ -46,7 +46,7 @@ jobs:
           npm install --save-dev autoprefixer postcss-cli
         working-directory: ./site
 
-      - run: hugo --baseURL https://${REPO_OWNER}.github.io/${REPO_NAME} --minify
+      - run: hugo --baseURL https://kindnet.es --minify
         working-directory: ./site
 
       - name: Deploy
