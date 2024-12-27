@@ -5,7 +5,7 @@ weight: 1
 ---
 
 
-<p align="center"><img alt="musselgrinho" src="./musselgrinho.png" width="300px" /></p>
+<p align="center"><img alt="musselgrinho" src="/images/musselgrinho.png" width="300px" /></p>
 
 
 ## How it Works
