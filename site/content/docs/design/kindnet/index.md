@@ -5,6 +5,8 @@ date: 2024-12-26T22:54:48Z
 
 Kindnet is a simple yet powerful Kubernetes Network Plugin designed for performance, scalability, and low resource consumption. It provides essential networking capabilities for Kubernetes Pods, including IP address management (IPAM), network policy enforcement, DNS caching, NAT64, and more.
 
+![architecture](./kindnet_architecture.png)
+
 ## Architecture
 
 Kindnet follows a node-centric architecture, with a dedicated agent running on each Kubernetes node. This agent is responsible for:
@@ -26,7 +28,5 @@ Kindnet follows a node-centric architecture, with a dedicated agent running on e
 ## Key Components
 
 * Node Agent: A lightweight daemon running on each Kubernetes node, responsible for core networking functions.
-* [CNI Plugin](cni): A simple binary that interfaces with the node agent to configure Pod networking during container creation and deletion.
+* [CNI Plugin](../cni/index.md): A simple binary that interfaces with the node agent to configure Pod networking during container creation and deletion.
 * IPAM controller: use the existing controller in the kube- or cloud-controller-manager or the [kubernetes-sigs/node-ipam-controller](https://github.com/kubernetes-sigs/node-ipam-controller)
-
-![architecture](./kindnet_architecture.png)
