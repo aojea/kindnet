@@ -5,7 +5,8 @@ weight: 1
 ---
 
 
-![musselgrinho](./musselgrinho.jpeg)
+<p align="center"><img alt="musselgrinho" src="./musselgrinho.png" width="300px" /></p>
+
 
 ## How it Works
 
