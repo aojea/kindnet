@@ -1,14 +1,12 @@
-# KindNet: A Minimalistic Kubernetes Network Plugin
+# Kindnet: A Minimalistic Kubernetes Network Plugin
 
-KindNet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
-
+Kindnet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
 
 <p align="center"><img alt="musselgrinho" src="./musselgrinho.png" width="300px" /></p>
 
-
 ## Goal
 
-Born from years of experience running and debugging complex network issues in Kubernetes, KindNet focuses on providing essential networking functionality without unnecessary complexity. It's opinionated by design, so you can focus on your applications, not your network.
+Born from years of experience running and debugging complex network issues in Kubernetes, Kindnet focuses on providing essential networking functionality without unnecessary complexity. It's opinionated by design, so you can focus on your applications, not your network.
 
 ## History
 
@@ -45,7 +43,7 @@ using it on "real" clusters.
 
 ## How it Works
 
-KindNet uses a simple bridge network to connect pods within the same node.  It leverages the host's network stack for external communication, eliminating the need for complex overlay networks.
+Kindnet uses a simple point to point model to connect pods within the same node.  It leverages the host's network stack for external communication, eliminating the need for complex overlay networks.
 
 ## Installation
 
@@ -56,14 +54,6 @@ kubectl create -f
 https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml
 ```
 
-By default, the `ptp` CNI plugin is used, but the `bridge` plugin can be selected by setting the environment
-variable `CNI_BRIDGE` in the `kindnet-cni` container. You can use the following manifest directly:
-
-```sh
-kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet-bridge.yaml
-```
-
 ## Contributing
  
 Please report any issues in the Github project.
@@ -72,4 +62,4 @@ Per example, adding networking overlay functionality is out of the scope of the 
 
 ## License
 
-KindNet is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
+Kindnet is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
