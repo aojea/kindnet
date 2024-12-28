@@ -16,6 +16,7 @@ import (
 	"runtime/debug"
 	"time"
 
+	"github.com/aojea/kindnet/pkg/conntrack"
 	"github.com/aojea/kindnet/pkg/dnscache"
 	"github.com/aojea/kindnet/pkg/fastpath"
 	"github.com/aojea/kindnet/pkg/masq"
@@ -362,6 +363,16 @@ func main() {
 			}()
 		}
 	}
+
+	// start conntrack metrics agent
+	go func() {
+		klog.Infof("start conntrack metrics agent")
+		err := conntrack.StartConntrackMetricsAgent(ctx)
+		if err != nil {
+			klog.Infof("conntrack metrics agent error: %v", err)
+		}
+	}()
+
 	// main control loop
 	informersFactory.Start(ctx.Done())
 	klog.Infof("Kindnetd started successfully")

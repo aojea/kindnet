@@ -10,7 +10,10 @@ require (
 	github.com/containerd/nri v0.9.0
 	github.com/florianl/go-nflog/v2 v2.1.0
 	github.com/google/nftables v0.2.1-0.20241219092456-e99829fb4f26
+	github.com/mdlayher/netlink v1.7.2
 	github.com/prometheus/client_golang v1.20.5
+	github.com/ti-mo/conntrack v0.5.1
+	github.com/ti-mo/netfilter v0.5.2
 	github.com/vishvananda/netlink v1.3.0
 	k8s.io/api v0.32.0
 	k8s.io/apimachinery v0.32.0
@@ -56,7 +59,6 @@ require (
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/knqyf263/go-plugin v0.8.1-0.20240827022226-114c6257e441 // indirect
-	github.com/mdlayher/netlink v1.7.2 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/opencontainers/runtime-spec v1.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

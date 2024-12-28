@@ -20,7 +20,6 @@ var (
 
 var registerMetricsOnce sync.Once
 
-// RegisterMetrics registers kube-proxy metrics.
 func registerMetrics() {
 	registerMetricsOnce.Do(func() {
 		klog.Infof("Registering metrics")
