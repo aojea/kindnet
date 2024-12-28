@@ -67,9 +67,11 @@ var (
 	controlPlaneEndpoint string
 	metricsBindAddress   string
 	fastpathThreshold    int
+	disableCNI           bool
 )
 
 func init() {
+	flag.BoolVar(&disableCNI, "disable-cni", false, "If set, disable the CNI functionality to add IPs to Pods and routing between nodes (default false)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
 	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
 	flag.BoolVar(&nat64, "nat64", true, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true)")
@@ -186,13 +188,15 @@ func main() {
 	}
 
 	// node controller handles CNI config for our own node and routes to the others
-	nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer)
-	go func() {
-		err := nodeController.Run(ctx, 5)
-		if err != nil {
-			klog.Fatalf("error running routes controller: %v", err)
-		}
-	}()
+	if !disableCNI {
+		nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer)
+		go func() {
+			err := nodeController.Run(ctx, 5)
+			if err != nil {
+				klog.Fatalf("error running routes controller: %v", err)
+			}
+		}()
+	}
 
 	// create an ipMasqAgent
 	if masquerading {
