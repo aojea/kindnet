@@ -22,7 +22,7 @@ lint:
 	hack/lint.sh
 
 update:
-	go mod tidy && go mod vendor
+	go mod tidy
 
 # get image name from directory we're building
 IMAGE_NAME=kindnetd
@@ -32,9 +32,11 @@ REGISTRY?=ghcr.io/aojea
 TAG?=$(shell echo "$$(date +v%Y%m%d)-$$(git describe --always --dirty)")
 # the full image tag
 IMAGE?=$(REGISTRY)/$(IMAGE_NAME):$(TAG)
-
+PLATFORMS?=linux/amd64,linux/arm64
 # required to enable buildx
 export DOCKER_CLI_EXPERIMENTAL=enabled
+
 image-build:
-# docker buildx build --platform=${PLATFORMS} $(OUTPUT) --progress=$(PROGRESS) -t ${IMAGE} --pull $(EXTRA_BUILD_OPT) .
-	docker build . -t ${IMAGE} --load
+	docker buildx build . \
+		--platform="${PLATFORMS}" \
+		--tag="${IMAGE}"
