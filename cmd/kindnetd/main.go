@@ -22,15 +22,21 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/sys/unix"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	nodeutil "k8s.io/component-helpers/node/util"
-	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
 
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/informers"
+	v1 "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugin
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
+
+	"sigs.k8s.io/kube-network-policies/pkg/networkpolicy"
+	npaclient "sigs.k8s.io/network-policy-api/pkg/client/clientset/versioned"
+	npainformers "sigs.k8s.io/network-policy-api/pkg/client/informers/externalversions"
+	"sigs.k8s.io/network-policy-api/pkg/client/informers/externalversions/apis/v1alpha1"
+
+	_ "k8s.io/component-base/metrics/prometheus/clientgo" // load all the prometheus client-go plugin
 )
 
 // kindnetd is a simple networking daemon to complete kind's CNI implementation
@@ -58,21 +64,25 @@ const (
 )
 
 var (
-	networkpolicies      bool
-	dnsCaching           bool
-	nat64                bool
-	hostnameOverride     string
-	masquerading         bool
-	noMasqueradeCIDRs    string
-	controlPlaneEndpoint string
-	metricsBindAddress   string
-	fastpathThreshold    int
-	disableCNI           bool
+	networkpolicies            bool
+	adminNetworkPolicy         bool
+	baselineAdminNetworkPolicy bool
+	dnsCaching                 bool
+	nat64                      bool
+	hostnameOverride           string
+	masquerading               bool
+	noMasqueradeCIDRs          string
+	controlPlaneEndpoint       string
+	metricsBindAddress         string
+	fastpathThreshold          int
+	disableCNI                 bool
 )
 
 func init() {
 	flag.BoolVar(&disableCNI, "disable-cni", false, "If set, disable the CNI functionality to add IPs to Pods and routing between nodes (default false)")
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
+	flag.BoolVar(&adminNetworkPolicy, "admin-network-policy", false, "If set, enable Admin Network Policies (default false)")
+	flag.BoolVar(&baselineAdminNetworkPolicy, "baseline-admin-network-policy", false, "If set, enable Baseline Admin Network Policies (default false)")
 	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
 	flag.BoolVar(&nat64, "nat64", true, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
@@ -115,6 +125,7 @@ func main() {
 	}
 
 	config.UserAgent = "kindnet"
+	npaConfig := config // shallow copy because CRDs does not support proto
 	// use protobuf for better performance at scale
 	// https://kubernetes.io/docs/reference/using-api/api-concepts/#alternate-representations-of-resources
 	config.AcceptContentTypes = "application/vnd.kubernetes.protobuf,application/json"
@@ -273,11 +284,33 @@ func main() {
 	// network policies
 	if networkpolicies {
 		cfg := networkpolicy.Config{
-			FailOpen:            true,
-			QueueID:             102,
-			NodeName:            nodeName,
-			NFTableName:         "kindnet-network-policies",
-			NetfilterBug1766Fix: true,
+			FailOpen:                   true,
+			QueueID:                    102,
+			NodeName:                   nodeName,
+			NFTableName:                "kindnet-network-policies",
+			NetfilterBug1766Fix:        true,
+			AdminNetworkPolicy:         adminNetworkPolicy,
+			BaselineAdminNetworkPolicy: baselineAdminNetworkPolicy,
+		}
+
+		var npaClient *npaclient.Clientset
+		var npaInformerFactory npainformers.SharedInformerFactory
+		var nodeInformer v1.NodeInformer
+		if adminNetworkPolicy || baselineAdminNetworkPolicy {
+			nodeInformer = informersFactory.Core().V1().Nodes()
+			npaClient, err = npaclient.NewForConfig(npaConfig)
+			if err != nil {
+				klog.Fatalf("Failed to create Network client: %v", err)
+			}
+			npaInformerFactory = npainformers.NewSharedInformerFactory(npaClient, 0)
+		}
+		var anpInformer v1alpha1.AdminNetworkPolicyInformer
+		if adminNetworkPolicy {
+			anpInformer = npaInformerFactory.Policy().V1alpha1().AdminNetworkPolicies()
+		}
+		var banpInformer v1alpha1.BaselineAdminNetworkPolicyInformer
+		if baselineAdminNetworkPolicy {
+			banpInformer = npaInformerFactory.Policy().V1alpha1().BaselineAdminNetworkPolicies()
 		}
 
 		networkPolicyController, err := networkpolicy.NewController(
@@ -286,9 +319,9 @@ func main() {
 			informersFactory.Core().V1().Namespaces(),
 			informersFactory.Core().V1().Pods(),
 			nodeInformer,
-			nil,
-			nil,
-			nil,
+			npaClient,
+			anpInformer,
+			banpInformer,
 			cfg)
 		if err != nil {
 			klog.Infof("Error creating network policy controller: %v, skipping network policies", err)
