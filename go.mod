@@ -16,6 +16,7 @@ require (
 	k8s.io/klog/v2 v2.130.1
 	sigs.k8s.io/knftables v0.0.18
 	sigs.k8s.io/kube-network-policies v0.6.1
+	sigs.k8s.io/network-policy-api v0.1.5
 )
 
 require (
@@ -66,7 +67,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241219192143-6b3ec007d9bb // indirect
 	google.golang.org/grpc v1.69.2 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
-	sigs.k8s.io/network-policy-api v0.1.5 // indirect
 )
 
 require (
