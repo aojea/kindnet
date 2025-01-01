@@ -2,7 +2,7 @@
 
 # STEP 1: Build kindnetd binary
 FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
-ARG TARGETARCH BUILDPLATFORM
+ARG TARGETARCH BUILDPLATFORM TARGETPLATFORM
 # copy in sources
 WORKDIR /src
 COPY . .
@@ -18,7 +18,7 @@ RUN if [ "$TARGETARCH" = "arm64" ] ; then \
   fi
 
 # STEP 2: Build small image
-FROM --platform=${BUILDPLATFORM} registry.k8s.io/build-image/distroless-iptables:v0.6.6
+FROM --platform=${TARGETPLATFORM} registry.k8s.io/build-image/distroless-iptables:v0.6.6
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /go/bin/cni-kindnet /opt/cni/bin/cni-kindnet
 CMD ["/bin/kindnetd"]
