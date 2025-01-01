@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"time"
 
 	"github.com/aojea/kindnet/pkg/dnscache"
@@ -106,6 +107,8 @@ func main() {
 	flag.VisitAll(func(flag *flag.Flag) {
 		klog.Infof("FLAG: --%s=%q", flag.Name, flag.Value)
 	})
+
+	printBuildInfo()
 
 	nodeName, err := nodeutil.GetHostname(hostnameOverride)
 	if err != nil {
@@ -368,4 +371,19 @@ func checkHTTP(address string) bool {
 		return false
 	}
 	return true
+}
+
+func printBuildInfo() {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
+	if bi.GoVersion != "" {
+		klog.Infof("Build: %s\n", bi.GoVersion)
+	}
+
+	for _, s := range bi.Settings {
+		klog.Infof("Build: %s=%s\n", s.Key, s.Value)
+	}
 }
