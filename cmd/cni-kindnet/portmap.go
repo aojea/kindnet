@@ -94,6 +94,14 @@ func reconcilePortMaps() error {
 	tx.Flush(&knftables.Map{
 		Name: hostPortMapv6 + "-udp"},
 	)
+	tx.Add(&knftables.Map{
+		Name:  hostPortMapv6 + "-sctp",
+		Type:  "ipv6_addr . inet_service : ipv6_addr . inet_service",
+		Flags: []knftables.SetFlag{knftables.IntervalFlag},
+	})
+	tx.Flush(&knftables.Map{
+		Name: hostPortMapv6 + "-sctp"},
+	)
 
 	tx.Add(&knftables.Chain{
 		Name:     "prerouting",
@@ -120,6 +128,10 @@ func reconcilePortMaps() error {
 	tx.Add(&knftables.Rule{
 		Chain: "prerouting",
 		Rule:  "dnat ip6 to ip6 daddr . udp dport map @" + hostPortMapv6 + "-udp",
+	})
+	tx.Add(&knftables.Rule{
+		Chain: "prerouting",
+		Rule:  "dnat ip6 to ip6 daddr . sctp dport map @" + hostPortMapv6 + "-sctp",
 	})
 
 	tx.Add(&knftables.Chain{
@@ -151,6 +163,10 @@ func reconcilePortMaps() error {
 	tx.Add(&knftables.Rule{
 		Chain: "output",
 		Rule:  "dnat ip6 to ip6 daddr . udp dport map @" + hostPortMapv6 + "-udp",
+	})
+	tx.Add(&knftables.Rule{
+		Chain: "output",
+		Rule:  "dnat ip6 to ip6 daddr . sctp dport map @" + hostPortMapv6 + "-sctp",
 	})
 
 	// Set up this container
@@ -184,6 +200,13 @@ func reconcilePortMaps() error {
 			if strings.ToLower(e.Protocol) == "udp" {
 				tx.Add(&knftables.Element{
 					Map:   hostPortMapv6 + "-udp",
+					Key:   []string{e.HostIP, strconv.Itoa(e.HostPort)},
+					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
+				})
+			}
+			if strings.ToLower(e.Protocol) == "sctp" {
+				tx.Add(&knftables.Element{
+					Map:   hostPortMapv6 + "-sctp",
 					Key:   []string{e.HostIP, strconv.Itoa(e.HostPort)},
 					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
 				})
