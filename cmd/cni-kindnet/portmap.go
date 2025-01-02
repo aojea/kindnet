@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
@@ -352,4 +353,42 @@ func encodeWithAlignment(data any) []byte {
 	}
 
 	return buf.Bytes()
+}
+
+// deletePortmapStaleConnections delete the UDP conntrack entries on the specified IP family
+// from the ports mapped to the container
+func deletePortmapStaleConnections(portMappings []PortMapConfig) error {
+	filtersV4 := []netlink.CustomConntrackFilter{}
+	filtersV6 := []netlink.CustomConntrackFilter{}
+	for _, pm := range portMappings {
+		// skip if is not UDP
+		if strings.ToLower(pm.Protocol) != "udp" {
+			continue
+		}
+		filter := &netlink.ConntrackFilter{}
+		filter.AddProtocol(unix.IPPROTO_UDP)
+		filter.AddPort(netlink.ConntrackOrigDstPort, uint16(pm.HostPort))
+		ip, err := netip.ParseAddr(pm.ContainerIP)
+		if err != nil {
+			continue
+		}
+		if ip.Is4() {
+			filtersV4 = append(filtersV4, filter)
+		} else if ip.Is6() {
+			filtersV6 = append(filtersV6, filter)
+		}
+	}
+	if len(filtersV4) > 0 {
+		_, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, unix.AF_INET, filtersV4...)
+		if err != nil {
+			logger.Printf("error deleting connection tracking state error for IPv4: %v", err)
+		}
+	}
+	if len(filtersV6) > 0 {
+		_, err := netlink.ConntrackDeleteFilters(netlink.ConntrackTable, unix.AF_INET6, filtersV6...)
+		if err != nil {
+			logger.Printf("error deleting connection tracking state error for IPv6: %v", err)
+		}
+	}
+	return nil
 }
