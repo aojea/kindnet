@@ -3,6 +3,7 @@ module github.com/aojea/kindnet
 go 1.23.0
 
 require (
+	github.com/aws/aws-sdk-go v1.55.5
 	github.com/containerd/nri v0.9.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
@@ -37,6 +38,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/knqyf263/go-plugin v0.8.1-0.20240827022226-114c6257e441 // indirect
