@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -148,7 +149,7 @@ func (c *NodeController) handleErr(err error, key string) {
 		return
 	}
 
-	if c.workqueue.NumRequeues(key) < 5 {
+	if c.workqueue.NumRequeues(key) < 15 {
 		klog.Infof("Error syncing node %s, retrying: %v", key, err)
 		c.workqueue.AddRateLimited(key)
 		return
@@ -180,6 +181,16 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 			return err
 		}
 		c.cniDone = true
+	}
+	// cloud provider specific changes required to the node
+
+	// AWS requires to disable the source destination check
+	// to allow traffic between Pods
+	if strings.Contains(node.Spec.ProviderID, "aws") {
+		err := disableAWSSrcDstCheck()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
