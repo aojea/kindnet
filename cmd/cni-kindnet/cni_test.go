@@ -29,7 +29,7 @@ import (
 
 func TestCNIPlugin(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Fatalf("Test requires root privileges.")
+		t.Skip("Test requires root privileges.")
 	}
 	tests := []struct {
 		name   string
@@ -139,7 +139,7 @@ func TestCNIPlugin(t *testing.T) {
 
 func TestAddDel(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Fatalf("Test requires root privileges.")
+		t.Skip("Test requires root privileges.")
 	}
 
 	now := time.Now()
@@ -250,7 +250,7 @@ func TestAddDel(t *testing.T) {
 
 func TestAdds(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Fatalf("Test requires root privileges.")
+		t.Skip("Test requires root privileges.")
 	}
 
 	now := time.Now()
@@ -372,7 +372,7 @@ func TestAdds(t *testing.T) {
 
 func TestHostPort(t *testing.T) {
 	if os.Getuid() != 0 {
-		t.Fatalf("Test requires root privileges.")
+		t.Skip("Test requires root privileges.")
 	}
 	containerPort := 8080
 	tests := []struct {
