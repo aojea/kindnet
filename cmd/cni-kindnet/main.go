@@ -133,8 +133,7 @@ func start() error {
 		if err != nil {
 			return fmt.Errorf("can not open log file %s : %v", logFile, err)
 		}
-		defer file.Close() // Ensure the file is closed when you're done
-		logger = log.New(file, "cni-kindnet: ", log.LstdFlags)
+		logger = log.New(file, "", log.LstdFlags)
 	} else {
 		logger = log.New(ioutil.Discard, "", 0)
 	}

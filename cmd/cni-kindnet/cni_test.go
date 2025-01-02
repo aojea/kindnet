@@ -5,14 +5,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -364,4 +368,194 @@ func TestAdds(t *testing.T) {
 		t.Logf("no pods remaining in the db")
 	}
 	t.Logf("%d success out of %d in %v", successes.Load(), total, time.Since(now))
+}
+
+func TestHostPort(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Fatalf("Test requires root privileges.")
+	}
+	containerPort := 8080
+	tests := []struct {
+		name      string
+		ranges    []netip.Prefix
+		hostports []PortMapEntry
+	}{
+		{
+			name:   "ipv4-localhost",
+			ranges: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
+			hostports: []PortMapEntry{{
+				HostPort:      18090,
+				ContainerPort: containerPort,
+				Protocol:      "TCP",
+				HostIP:        "127.0.0.1",
+			}},
+		},
+		{
+			name:   "ipv4",
+			ranges: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
+			hostports: []PortMapEntry{{
+				HostPort:      18090,
+				ContainerPort: containerPort,
+				Protocol:      "TCP",
+				HostIP:        "",
+			}},
+		},
+		{
+			name:   "ipv6-localhost",
+			ranges: []netip.Prefix{netip.MustParsePrefix("2001:db8::/64")},
+			hostports: []PortMapEntry{{
+				HostPort:      18090,
+				ContainerPort: containerPort,
+				Protocol:      "TCP",
+				HostIP:        "::1",
+			}},
+		},
+		{
+			name:   "ipv6",
+			ranges: []netip.Prefix{netip.MustParsePrefix("2001:db8::/64")},
+			hostports: []PortMapEntry{{
+				HostPort:      18090,
+				ContainerPort: containerPort,
+				Protocol:      "TCP",
+				HostIP:        "",
+			}},
+		},
+	}
+
+	for _, rt := range tests {
+		t.Run(rt.name, func(t *testing.T) {
+			tempDir, err := ioutil.TempDir("", "temp")
+			if err != nil {
+				t.Errorf("create tempDir: %v", err)
+			}
+			t.Logf("logs on %s", tempDir)
+			dbDir = tempDir
+			t.Setenv("CNI_LOG_FILE", filepath.Join(tempDir, "test.log"))
+			// t.Setenv("CNI_KINDNET_DEBUG_NETLINK", "true")
+			t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+			// initialize variables
+			err = start()
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 1. Prepare test environment
+			// Save the current network namespace
+			runtime.LockOSThread()
+			origns, err := netns.Get()
+			if err != nil {
+				t.Fatalf("unexpected error trying to get namespace: %v", err)
+			}
+			defer origns.Close()
+
+			nsName := "test-ns"
+			testNS, err := netns.NewNamed(nsName)
+			if err != nil {
+				t.Fatalf("Failed to create network namespace: %v", err)
+			}
+			defer netns.DeleteNamed(nsName)
+			defer testNS.Close()
+
+			// open a listener inside the namespace
+			lnAt, err := net.Listen("tcp", fmt.Sprintf(":%d", containerPort))
+			if err != nil {
+				t.Fatalf("Failed to create listener on network namespace: %v", err)
+			}
+			// Switch back to the original namespace
+			netns.Set(origns)
+			runtime.UnlockOSThread()
+
+			mux := http.NewServeMux()
+			mux.HandleFunc("/cni-test", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte("Connection from: " + r.RemoteAddr))
+			})
+			go func() {
+				http.Serve(lnAt, mux)
+			}()
+
+			// 3. Prepare CNI configuration
+			cniConfig := KindnetConf{
+				NetConf: types.NetConf{
+					CNIVersion: "0.3.1",
+					Name:       "test-network",
+					Type:       "cni-kindnet",
+				},
+			}
+			for _, cidr := range rt.ranges {
+				cniConfig.Ranges = append(cniConfig.Ranges, cidr.String())
+			}
+			for _, hostport := range rt.hostports {
+				cniConfig.RuntimeConfig.PortMaps = append(cniConfig.RuntimeConfig.PortMaps, hostport)
+			}
+
+			data, err := json.Marshal(cniConfig)
+			if err != nil {
+				t.Fatalf("Failed to serialize cni config: %v", err)
+			}
+			//  Prepare CNI arguments
+			args := &skel.CmdArgs{
+				ContainerID: "test-container",
+				Netns:       filepath.Join("/run/netns/", nsName),
+				IfName:      "eth0",
+				StdinData:   data,
+			}
+
+			//  Execute ADD command
+			if err := cmdAdd(args); err != nil {
+				t.Fatalf("CNI ADD command failed: %v", err)
+			}
+
+			cmd := exec.Command("nft", "list", "table", "inet", "cni-kindnet")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("no connectivity from namespace: %v", err)
+			}
+			t.Logf("rules after ADD: %s", string(out))
+
+			// we need to dial from the host otherwise we need to set route_localnet on IPv4 and does not work for IPv6
+			// Use the first address from the range since is the one added by the CNI command to the container interface on the host to be used as default gw.
+			dialer := &net.Dialer{
+				LocalAddr: &net.TCPAddr{
+					IP:   rt.ranges[0].Addr().AsSlice(),
+					Port: 0,
+				},
+			}
+			client := http.Client{Transport: &http.Transport{
+				Dial: dialer.Dial,
+			}}
+
+			// Test connectivity
+			for _, hostport := range rt.hostports {
+				// TODO: connect to any IP in the host for the unspecified
+				requestURL := fmt.Sprintf("http://localhost:%d/cni-test", hostport.HostPort)
+				res, err := client.Get(requestURL)
+				if err != nil {
+					t.Fatalf("error making http request: %v\n", err)
+				}
+				resBody, err := io.ReadAll(res.Body)
+				if err != nil {
+					t.Fatalf("could not read response body: %v\n", err)
+				}
+				t.Logf("client: response body: %s\n", string(resBody))
+				if !strings.Contains(string(resBody), "Connection from") {
+					t.Fatalf("unexpected response body: %s\n", string(resBody))
+				}
+			}
+
+			//  Execute DEL command
+			if err := cmdDel(args); err != nil {
+				t.Errorf("CNI DEL command failed: %v", err)
+			}
+
+			cmd = exec.Command("nft", "list", "table", "inet", "cni-kindnet")
+			out, err = cmd.CombinedOutput()
+			if err != nil {
+				t.Errorf("no connectivity from namespace: %v", err)
+			}
+			t.Logf("rules after DEL: %s", string(out))
+
+			// TODO test check
+			err = cmdCheck(args)
+		})
+	}
 }
