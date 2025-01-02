@@ -16,6 +16,7 @@ clean:
 
 test:
 	CGO_ENABLED=1 go test -v -race -count 1 ./...
+	cd ./cmd/cni-kindnet ; CGO_ENABLED=1 go test -v -race -count 1 .
 
 # code linters
 lint:
