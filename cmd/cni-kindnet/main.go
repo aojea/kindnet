@@ -291,6 +291,12 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 		if err != nil {
 			return fmt.Errorf("fail to reconcile portmaps: %v", err)
 		}
+		// Delete conntrack entries for UDP to avoid conntrack blackholing traffic
+		// due to stale connections. We do that after the dataplane rules are set, so
+		// the new traffic uses them. Failures are informative only.
+		if err := deletePortmapStaleConnections(networkConfig.PortMaps); err != nil {
+			logger.Printf("failed to delete stale UDP conntrack entries for %s: %v", networkConfig.IPv4.String(), err)
+		}
 	}
 
 	cniResult := networkConfig.ToCNIResult()
