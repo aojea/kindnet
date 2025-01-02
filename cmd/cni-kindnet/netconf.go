@@ -152,17 +152,17 @@ func newNetworkConfig(args *skel.CmdArgs) (*NetworkConfig, error) {
 		} else if result.IPv4 != nil && result.IPv6 != nil {
 			// This is an special case as we need to store two entries
 			entry2 := entry
-			entry2.HostIP = "::/0"
+			entry2.HostIP = "::"
 			entry2.ContainerIP = result.IPv6.String()
 			result.PortMaps = append(result.PortMaps, entry2)
 
-			entry.HostIP = "0.0.0.0/0"
+			entry.HostIP = "0.0.0.0"
 			entry.ContainerIP = result.IPv4.String()
 		} else if result.IPv4 != nil {
-			entry.HostIP = "0.0.0.0/0"
+			entry.HostIP = "0.0.0.0"
 			entry.ContainerIP = result.IPv4.String()
 		} else if result.IPv6 != nil {
-			entry.HostIP = "::/0"
+			entry.HostIP = "::"
 			entry.ContainerIP = result.IPv6.String()
 		}
 		result.PortMaps = append(result.PortMaps, entry)

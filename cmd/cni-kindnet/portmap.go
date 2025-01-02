@@ -3,15 +3,22 @@
 package main
 
 import (
-	"context"
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"net/netip"
-	"strconv"
 	"strings"
 
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/knftables"
+	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
+	"golang.org/x/sys/unix"
 )
+
+var protoMap map[string]byte = map[string]byte{
+	"tcp":  unix.IPPROTO_TCP,
+	"udp":  unix.IPPROTO_UDP,
+	"sctp": unix.IPPROTO_SCTP,
+}
 
 func getPortMapEntries() ([]PortMapConfig, error) {
 	rows, err := db.Query(`
@@ -46,177 +53,279 @@ func reconcilePortMaps() error {
 	if err != nil {
 		return err
 	}
-	// Write nftables for the portmap functionality
-	nft, err := knftables.New(knftables.InetFamily, pluginName)
+
+	nft, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("portmap failure, can not start nftables:%v", err)
 	}
 
-	tx := nft.NewTransaction()
+	portmapTable := nft.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyINet,
+		Name:   pluginName,
+	})
+	nft.FlushTable(portmapTable)
 
-	tx.Add(&knftables.Table{
-		Comment: ptr.To("rules for hostports"),
-	})
-	tx.Flush(&knftables.Table{})
+	// Sets
+	hostPortMapv4Set := &nftables.Set{
+		Table:         portmapTable,
+		Name:          hostPortMapv4,
+		IsMap:         true,
+		Interval:      true,
+		Concatenation: true,
+		KeyType:       nftables.MustConcatSetType(nftables.TypeIPAddr, nftables.TypeInetProto, nftables.TypeInetService),
+		DataType:      nftables.MustConcatSetType(nftables.TypeIPAddr, nftables.TypeInetService),
+	}
 
-	tx.Add(&knftables.Map{
-		Name:  hostPortMapv4,
-		Type:  "ipv4_addr . inet_proto . inet_service : ipv4_addr . inet_service",
-		Flags: []knftables.SetFlag{knftables.IntervalFlag},
-	})
-	tx.Flush(&knftables.Map{
-		Name: hostPortMapv4},
-	)
-	/* Workaround to https://www.spinics.net/lists/netfilter/msg61976.html
-	tx.Add(&knftables.Map{
-		Name:  hostPortMapv6,
-		Type:  "ipv6_addr . inet_proto . inet_service : ipv6_addr . inet_service",
-		Flags: []knftables.SetFlag{knftables.IntervalFlag},
-	})
-	tx.Flush(&knftables.Map{
-		Name: hostPortMapv6},
-	)
-	*/
+	hostPortMapv6Set := &nftables.Set{
+		Table:         portmapTable,
+		Name:          hostPortMapv6,
+		IsMap:         true,
+		Interval:      true,
+		Concatenation: true,
+		KeyType:       nftables.MustConcatSetType(nftables.TypeIP6Addr, nftables.TypeInetProto, nftables.TypeInetService),
+		DataType:      nftables.MustConcatSetType(nftables.TypeIP6Addr, nftables.TypeInetService),
+	}
 
-	tx.Add(&knftables.Map{
-		Name:  hostPortMapv6 + "-tcp",
-		Type:  "ipv6_addr . inet_service : ipv6_addr . inet_service",
-		Flags: []knftables.SetFlag{knftables.IntervalFlag},
-	})
-	tx.Flush(&knftables.Map{
-		Name: hostPortMapv6 + "-tcp"},
-	)
-	tx.Add(&knftables.Map{
-		Name:  hostPortMapv6 + "-udp",
-		Type:  "ipv6_addr . inet_service : ipv6_addr . inet_service",
-		Flags: []knftables.SetFlag{knftables.IntervalFlag},
-	})
-	tx.Flush(&knftables.Map{
-		Name: hostPortMapv6 + "-udp"},
-	)
-	tx.Add(&knftables.Map{
-		Name:  hostPortMapv6 + "-sctp",
-		Type:  "ipv6_addr . inet_service : ipv6_addr . inet_service",
-		Flags: []knftables.SetFlag{knftables.IntervalFlag},
-	})
-	tx.Flush(&knftables.Map{
-		Name: hostPortMapv6 + "-sctp"},
-	)
+	if err := nft.AddSet(hostPortMapv4Set, nil); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", hostPortMapv4Set.Name, err)
+	}
+	nft.FlushSet(hostPortMapv4Set)
 
-	tx.Add(&knftables.Chain{
-		Name:     "prerouting",
-		Type:     knftables.PtrTo(knftables.NATType),
-		Hook:     knftables.PtrTo(knftables.PreroutingHook),
-		Priority: knftables.PtrTo(knftables.DNATPriority),
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "prerouting",
-		Rule:  "dnat ip to ip daddr . ip protocol . th dport map @" + hostPortMapv4,
-	})
+	if err := nft.AddSet(hostPortMapv6Set, nil); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", hostPortMapv6Set.Name, err)
+	}
+	nft.FlushSet(hostPortMapv6Set)
 
-	/*
-		tx.Add(&knftables.Rule{
-			Chain: "prerouting",
-			Rule:  "dnat to ip6 daddr . meta l4proto . th dport map @" + hostPortMapv6,
-		})
-	*/
-
-	tx.Add(&knftables.Rule{
-		Chain: "prerouting",
-		Rule:  "dnat ip6 to ip6 daddr . tcp dport map @" + hostPortMapv6 + "-tcp",
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "prerouting",
-		Rule:  "dnat ip6 to ip6 daddr . udp dport map @" + hostPortMapv6 + "-udp",
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "prerouting",
-		Rule:  "dnat ip6 to ip6 daddr . sctp dport map @" + hostPortMapv6 + "-sctp",
-	})
-
-	tx.Add(&knftables.Chain{
-		Name:     "output",
-		Type:     knftables.PtrTo(knftables.NATType),
-		Hook:     knftables.PtrTo(knftables.OutputHook),
-		Priority: knftables.PtrTo(knftables.DNATPriority),
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "output",
-		Rule:  "meta oifname != lo return",
-	})
-
-	tx.Add(&knftables.Rule{
-		Chain: "output",
-		Rule:  "dnat ip to ip daddr . ip protocol . th dport map @" + hostPortMapv4,
-	})
-
-	/*
-		tx.Add(&knftables.Rule{
-			Chain: "output",
-			Rule:  "dnat to ip6 daddr . meta l4proto . th dport map @" + hostPortMapv6,
-		})
-	*/
-	tx.Add(&knftables.Rule{
-		Chain: "output",
-		Rule:  "dnat ip6 to ip6 daddr . tcp dport map @" + hostPortMapv6 + "-tcp",
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "output",
-		Rule:  "dnat ip6 to ip6 daddr . udp dport map @" + hostPortMapv6 + "-udp",
-	})
-	tx.Add(&knftables.Rule{
-		Chain: "output",
-		Rule:  "dnat ip6 to ip6 daddr . sctp dport map @" + hostPortMapv6 + "-sctp",
-	})
-
-	// Set up this container
+	// Set Elements
+	var elementsV4, elementsV6 []nftables.SetElement
 	for _, e := range entries {
-		ip, err := netip.ParseAddr(e.ContainerIP)
+		hostIP, err := netip.ParseAddr(e.HostIP)
 		if err != nil {
+			logger.Printf("could not parse HostIP %s : %v", e.HostIP, err)
+			continue
+		}
+		containerIP, err := netip.ParseAddr(e.ContainerIP)
+		if err != nil {
+			logger.Printf("could not parse ContainerIP %s : %v", e.ContainerIP, err)
 			continue
 		}
 
-		if ip.Is4() {
-			tx.Add(&knftables.Element{
-				Map:   hostPortMapv4,
-				Key:   []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
-				Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
-			})
-		} else if ip.Is6() {
-			/*
-				tx.Add(&knftables.Element{
-					Map:   hostPortMapv6,
-					Key:   []string{e.HostIP, e.Protocol, strconv.Itoa(e.HostPort)},
-					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
-				})
-			*/
-			if strings.ToLower(e.Protocol) == "tcp" {
-				tx.Add(&knftables.Element{
-					Map:   hostPortMapv6 + "-tcp",
-					Key:   []string{e.HostIP, strconv.Itoa(e.HostPort)},
-					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
-				})
+		// NFT datatypes https://github.com/google/nftables/blob/e99829fb4f26d75fdd0cfce8ba4632744e72c2bc/set.go#L71
+		// TypeInetProto 1 byte
+		// TypeInetService 2 bytes
+		// Netlink seems to require 4-byte alignment.
+		key := []byte{}
+
+		key = append(key, hostIP.AsSlice()...)
+		proto := protoMap[strings.ToLower(e.Protocol)]
+		key = append(key, encodeWithAlignment(proto)...)
+		key = append(key, encodeWithAlignment(uint16(e.HostPort))...)
+
+		val := []byte{}
+		val = append(val, containerIP.AsSlice()...)
+		val = append(val, encodeWithAlignment(uint16(e.ContainerPort))...)
+
+		element := nftables.SetElement{
+			Key: key,
+			Val: val,
+		}
+		// from all zeros to all ones to cover any IP address
+		if hostIP.IsUnspecified() {
+			keyEnd := make([]byte, len(key))
+			_ = copy(keyEnd, key)
+			for i := 0; i < len(hostIP.AsSlice()); i++ {
+				keyEnd[i] = 0xff
 			}
-			if strings.ToLower(e.Protocol) == "udp" {
-				tx.Add(&knftables.Element{
-					Map:   hostPortMapv6 + "-udp",
-					Key:   []string{e.HostIP, strconv.Itoa(e.HostPort)},
-					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
-				})
-			}
-			if strings.ToLower(e.Protocol) == "sctp" {
-				tx.Add(&knftables.Element{
-					Map:   hostPortMapv6 + "-sctp",
-					Key:   []string{e.HostIP, strconv.Itoa(e.HostPort)},
-					Value: []string{e.ContainerIP, strconv.Itoa(e.ContainerPort)},
-				})
-			}
+			element.KeyEnd = keyEnd
+		}
+		if containerIP.Is4() {
+			elementsV4 = append(elementsV4, element)
+		} else if containerIP.Is6() {
+			elementsV6 = append(elementsV6, element)
 		}
 	}
 
-	err = nft.Run(context.Background(), tx)
+	if err := nft.SetAddElements(hostPortMapv4Set, elementsV4); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", hostPortMapv4Set.Name, err)
+	}
+	if err := nft.SetAddElements(hostPortMapv6Set, elementsV6); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", hostPortMapv6Set.Name, err)
+	}
+
+	// Add chains
+	preroutingChain := nft.AddChain(&nftables.Chain{
+		Name:     "prerouting",
+		Table:    portmapTable,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookPrerouting,
+		Priority: nftables.ChainPriorityNATDest,
+	})
+
+	/*
+			nft --debug=netlink add rule inet cni-kindnet prerouting dnat ip to ip daddr . ip protocol . th dport map @hostport-map-v4
+		inet cni-kindnet prerouting
+		  [ meta load nfproto => reg 1 ]
+		  [ cmp eq reg 1 0x00000002 ]
+		  [ payload load 4b @ network header + 16 => reg 1 ]
+		  [ payload load 1b @ network header + 9 => reg 9 ]
+		  [ payload load 2b @ transport header + 2 => reg 10 ]
+		  [ lookup reg 1 set hostport-map-v4 dreg 1 ]
+		  [ nat dnat ip addr_min reg 1 proto_min reg 9 ]
+	*/
+
+	mapLookupV4Expressions := []expr.Any{
+		&expr.Meta{
+			// [ meta load nfproto => reg 1 ]
+			Key:      expr.MetaKeyNFPROTO,
+			Register: 1,
+		},
+		&expr.Cmp{
+			// [ cmp eq reg 1 0x00000002 ]
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{unix.NFPROTO_IPV4},
+		},
+		&expr.Payload{
+			// [ payload load 4b @ network header + 16 => reg 1 ]
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       16,
+			Len:          4,
+		},
+		&expr.Payload{
+			// [ payload load 1b @ network header + 9 => reg 9 ]
+			DestRegister: 9,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       9,
+			Len:          1,
+		},
+		// [ payload load 2b @ transport header + 2 => reg 10 ]
+		&expr.Payload{
+			DestRegister: 10,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Lookup{
+			// [ lookup reg 1 set hostport-map-v4 dreg 1 ]
+			SourceRegister: 1,
+			DestRegister:   1,
+			IsDestRegSet:   true,
+			SetName:        hostPortMapv4Set.Name,
+		},
+		&expr.NAT{
+			// [ nat dnat ip addr_min reg 1 proto_min reg 9 ]
+			Type:        expr.NATTypeDestNAT,
+			Family:      unix.NFPROTO_IPV4,
+			RegAddrMin:  1,
+			RegProtoMin: 9,
+			Specified:   true,
+		},
+	}
+
+	mapLookupV6Expressions := []expr.Any{
+		&expr.Meta{
+			// [ meta load nfproto => reg 1 ]
+			Key:      expr.MetaKeyNFPROTO,
+			Register: 1,
+		},
+		&expr.Cmp{
+			// [ cmp eq reg 1 0x0000000a ]
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     []byte{unix.NFPROTO_IPV6},
+		},
+		&expr.Payload{
+			// [ payload load 16b @ network header + 24 => reg 1 ]
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       24,
+			Len:          16,
+		},
+		&expr.Meta{
+			// [ meta load l4proto => reg 2 ]
+			Key:      expr.MetaKeyL4PROTO,
+			Register: 2,
+		},
+		// [ payload load 2b @ transport header + 2 => reg 13 ]
+		&expr.Payload{
+			DestRegister: 13,
+			Base:         expr.PayloadBaseTransportHeader,
+			Offset:       2,
+			Len:          2,
+		},
+		&expr.Lookup{
+			// [ lookup reg 1 set hostport-map-v6 dreg 1 ]
+			SourceRegister: 1,
+			DestRegister:   1,
+			IsDestRegSet:   true,
+			SetName:        hostPortMapv6Set.Name,
+		},
+		&expr.NAT{
+			// [ nat dnat ip addr_min reg 1 proto_min reg 9 ]
+			Type:        expr.NATTypeDestNAT,
+			Family:      unix.NFPROTO_IPV6,
+			RegAddrMin:  1,
+			RegProtoMin: 2,
+			Specified:   true,
+		},
+	}
+
+	// IPv4
+	nft.AddRule(&nftables.Rule{
+		Table: portmapTable,
+		Chain: preroutingChain,
+		Exprs: mapLookupV4Expressions,
+	})
+
+	// IPv6
+	nft.AddRule(&nftables.Rule{
+		Table: portmapTable,
+		Chain: preroutingChain,
+		Exprs: mapLookupV6Expressions,
+	})
+
+	output := nft.AddChain(&nftables.Chain{
+		Name:     "output",
+		Table:    portmapTable,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookOutput,
+		Priority: nftables.ChainPriorityNATDest,
+	})
+
+	// IPv4
+	nft.AddRule(&nftables.Rule{
+		Table: portmapTable,
+		Chain: output,
+		Exprs: mapLookupV4Expressions,
+	})
+
+	// IPv6
+	nft.AddRule(&nftables.Rule{
+		Table: portmapTable,
+		Chain: output,
+		Exprs: mapLookupV6Expressions,
+	})
+
+	err = nft.Flush()
 	if err != nil {
-		return fmt.Errorf("failed to add nftables for portmaps %s: %v", tx.String(), err)
+		return fmt.Errorf("failed to add nftables for portmaps: %v", err)
 	}
 	return nil
+}
+
+func encodeWithAlignment(data any) []byte {
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.BigEndian, data)
+	if err != nil {
+		panic(err)
+	}
+
+	// Calculate padding
+	padding := (4 - buf.Len()%4) % 4
+	for i := 0; i < padding; i++ {
+		buf.WriteByte(0x00)
+	}
+
+	return buf.Bytes()
 }
