@@ -174,6 +174,18 @@ func reconcilePortMaps() error {
 	*/
 
 	mapLookupV4Expressions := []expr.Any{
+		// only packets destined to local addresses
+		&expr.Fib{
+			Register:       1,
+			FlagDADDR:      true,
+			ResultADDRTYPE: true,
+		},
+		&expr.Cmp{
+			// [ cmp eq reg 1 0x00000002 ]
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     encodeWithAlignment(byte(unix.RTN_LOCAL)),
+		},
 		&expr.Meta{
 			// [ meta load nfproto => reg 1 ]
 			Key:      expr.MetaKeyNFPROTO,
@@ -224,6 +236,18 @@ func reconcilePortMaps() error {
 	}
 
 	mapLookupV6Expressions := []expr.Any{
+		// only packets destined to local addresses
+		&expr.Fib{
+			Register:       1,
+			FlagDADDR:      true,
+			ResultADDRTYPE: true,
+		},
+		&expr.Cmp{
+			// [ cmp eq reg 1 0x00000002 ]
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     encodeWithAlignment(byte(unix.RTN_LOCAL)),
+		},
 		&expr.Meta{
 			// [ meta load nfproto => reg 1 ]
 			Key:      expr.MetaKeyNFPROTO,
