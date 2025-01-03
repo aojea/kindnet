@@ -4,75 +4,41 @@ package fastpath
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"net"
 	"time"
 
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/time/rate"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/knftables"
 )
 
 const (
-	kindnetFlowtable = "kindnet-flowtables"
-	fastPathChain    = "kindnet-fastpath-chain"
+	kindnetFlowtable  = "kindnet-flowtables"
+	kindnetSetDevices = "kindnet-set-devices"
+	fastPathChain     = "kindnet-fastpath-chain"
 )
 
 func NewFastpathAgent(packetThresold int) (*FastPathAgent, error) {
-	klog.V(2).Info("Initializing nftables")
-	nft, err := knftables.New(knftables.InetFamily, "kindnet-fastpath")
-	if err != nil {
-		return nil, err
+	if packetThresold > math.MaxUint32 {
+		packetThresold = math.MaxUint32
 	}
 	return &FastPathAgent{
-		nft:            nft,
-		packetThresold: packetThresold,
+		packetThresold: uint32(packetThresold),
 	}, nil
 }
 
 type FastPathAgent struct {
-	nft            knftables.Interface
-	packetThresold int
+	packetThresold uint32
 }
 
 func (ma *FastPathAgent) Run(ctx context.Context) error {
-	klog.Info("Syncing nftables rules")
-	table := &knftables.Table{
-		Comment: knftables.PtrTo("rules for kindnet fastpath"),
-	}
-	tx := ma.nft.NewTransaction()
-	// do it once to delete the existing table
-	tx.Add(table)
-	tx.Delete(table)
-	tx.Add(table)
-
-	tx.Add(&knftables.Flowtable{
-		Name: kindnetFlowtable,
-	})
-
-	tx.Add(&knftables.Chain{
-		Name:     fastPathChain,
-		Type:     knftables.PtrTo(knftables.FilterType),
-		Hook:     knftables.PtrTo(knftables.ForwardHook),
-		Priority: knftables.PtrTo(knftables.DNATPriority + "-10"),
-	})
-
-	tx.Add(&knftables.Rule{
-		Chain: fastPathChain,
-		Rule: knftables.Concat(
-			"ct packets >", ma.packetThresold,
-			"flow offload", "@", kindnetFlowtable,
-			"counter",
-		),
-	})
-
-	err := ma.nft.Run(ctx, tx)
-	if err != nil {
-		klog.Error(err, "failed to add network interfaces to the flowtable")
-	}
-
 	minInterval := 5 * time.Second
 	maxInterval := 1 * time.Minute
 	rateLimiter := rate.NewLimiter(rate.Every(minInterval), 1)
@@ -97,12 +63,7 @@ func (ma *FastPathAgent) Run(ctx context.Context) error {
 		}
 
 		if len(ifnames) > 0 && !ifnames.Equal(currentIf) {
-			tx := ma.nft.NewTransaction()
-			tx.Add(&knftables.Flowtable{
-				Name:    kindnetFlowtable,
-				Devices: ifnames.UnsortedList(),
-			})
-			err := ma.nft.Run(ctx, tx)
+			err := ma.syncRules(ifnames.UnsortedList())
 			if err != nil {
 				klog.Error(err, "failed to add network interfaces to the flowtable")
 			} else {
@@ -149,14 +110,124 @@ func (ma *FastPathAgent) getNodeInterfaces() (sets.Set[string], error) {
 	return ifNames, nil
 }
 
+func (ma *FastPathAgent) syncRules(devices []string) error {
+	klog.V(2).Info("Syncing kindnet-fastpath nftables rules")
+	nft, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("fastpath failure, can not start nftables:%v", err)
+	}
+
+	// add + delete + add for flushing all the table
+	fastpathTable := &nftables.Table{
+		Name:   "kindnet-fastpath",
+		Family: nftables.TableFamilyINet,
+	}
+	nft.AddTable(fastpathTable)
+	nft.DelTable(fastpathTable)
+	nft.AddTable(fastpathTable)
+
+	devicesSet := &nftables.Set{
+		Table:        fastpathTable,
+		Name:         kindnetSetDevices,
+		KeyType:      nftables.TypeIFName,
+		KeyByteOrder: binaryutil.NativeEndian,
+	}
+
+	elements := []nftables.SetElement{}
+	for _, dev := range devices {
+		elements = append(elements, nftables.SetElement{
+			Key: ifname(dev),
+		})
+	}
+
+	if err := nft.AddSet(devicesSet, elements); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", devicesSet.Name, err)
+	}
+
+	flowtable := &nftables.Flowtable{
+		Table:    fastpathTable,
+		Name:     kindnetFlowtable,
+		Devices:  devices,
+		Hooknum:  nftables.FlowtableHookIngress,
+		Priority: nftables.FlowtablePriorityRef(5),
+	}
+	nft.AddFlowtable(flowtable)
+
+	chain := nft.AddChain(&nftables.Chain{
+		Name:     fastPathChain,
+		Table:    fastpathTable,
+		Type:     nftables.ChainTypeFilter,
+		Hooknum:  nftables.ChainHookForward,
+		Priority: nftables.ChainPriorityMangle, // before DNAT
+	})
+
+	// only offload devices that are being tracked
+	// TODO: check if this is really needed, we are using a set in addition
+	// to the flowtable.
+	nft.AddRule(&nftables.Rule{
+		Table: fastpathTable,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, SourceRegister: false, Register: 0x1},
+			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, IsDestRegSet: false, SetName: kindnetSetDevices, Invert: true},
+			&expr.Verdict{Kind: expr.VerdictReturn},
+		},
+	})
+
+	nft.AddRule(&nftables.Rule{
+		Table: fastpathTable,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyOIFNAME, SourceRegister: false, Register: 0x1},
+			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, IsDestRegSet: false, SetName: kindnetSetDevices, Invert: true},
+			&expr.Verdict{Kind: expr.VerdictReturn},
+		},
+	})
+
+	//  ct packets > packetThresold flow add @kindnet-flowtables counter
+	nft.AddRule(&nftables.Rule{
+		Table: fastpathTable,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Ct{Register: 0x1, SourceRegister: false, Key: expr.CtKeySTATE, Direction: 0x0},
+			&expr.Bitwise{SourceRegister: 0x1, DestRegister: 0x1, Len: 0x4, Mask: binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED), Xor: binaryutil.NativeEndian.PutUint32(0)},
+			&expr.Cmp{Op: 0x1, Register: 0x1, Data: []uint8{0x0, 0x0, 0x0, 0x0}},
+			&expr.Ct{Register: 0x1, SourceRegister: false, Key: expr.CtKeyPKTS, Direction: 0x0},
+			&expr.Cmp{Op: expr.CmpOpGt, Register: 0x1, Data: binaryutil.NativeEndian.PutUint64(uint64(ma.packetThresold))},
+			&expr.FlowOffload{Name: kindnetFlowtable},
+			&expr.Counter{},
+		},
+	})
+
+	err = nft.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to create kindnet-fastpath table: %v", err)
+	}
+	return nil
+}
+
 func (ma *FastPathAgent) CleanRules() {
-	tx := ma.nft.NewTransaction()
+	nft, err := nftables.New()
+	if err != nil {
+		klog.Infof("fastpath cleanup failure, can not start nftables:%v", err)
+		return
+	}
 	// Add+Delete is idempotent and won't return an error if the table doesn't already
 	// exist.
-	tx.Add(&knftables.Table{})
-	tx.Delete(&knftables.Table{})
+	fastpathTable := nft.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyINet,
+		Name:   "kindnet-fastpath",
+	})
+	nft.DelTable(fastpathTable)
 
-	if err := ma.nft.Run(context.TODO(), tx); err != nil {
+	err = nft.Flush()
+	if err != nil {
 		klog.Infof("error deleting nftables rules %v", err)
 	}
+}
+
+func ifname(n string) []byte {
+	b := make([]byte, 16)
+	copy(b, []byte(n+"\x00"))
+	return b
 }

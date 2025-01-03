@@ -5,6 +5,7 @@ go 1.23.0
 require (
 	github.com/aws/aws-sdk-go v1.55.5
 	github.com/containerd/nri v0.9.0
+	github.com/google/nftables v0.2.1-0.20241219092456-e99829fb4f26
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
 	k8s.io/api v0.32.0
