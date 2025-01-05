@@ -14,29 +14,32 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/aojea/kindnet/pkg/network"
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
+
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/knftables"
 )
 
 const (
+	tableName             = "kindnet-nat64"
 	prefixNAT64           = "64:ff9b::/96"
 	tproxyNAT64BypassMark = 14
 	tproxyNAT64Mark       = 13
 	tproxyNAT64Table      = 101
 )
 
+var (
+	prefixNAT64bytes = []byte{0x0, 0x64, 0xff, 0x9b, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0}
+)
+
 func NewNAT64Agent() (*NAT64Agent, error) {
 	klog.V(2).Info("Initializing nftables")
-	nft, err := knftables.New(knftables.IPv6Family, "kindnet-nat64")
-	if err != nil {
-		return nil, err
-	}
 
 	d := &NAT64Agent{
-		nft:      nft,
 		interval: 5 * time.Minute,
 	}
 
@@ -46,12 +49,10 @@ func NewNAT64Agent() (*NAT64Agent, error) {
 // NAT64Agent caches all DNS traffic from Pods with network based on the PodCIDR of the node they are running.
 // Cache logic is very specific to Kubernetes,
 type NAT64Agent struct {
-	nft      knftables.Interface
 	interval time.Duration
 
-	udpProxyAddr string
-	tcpProxyAddr string
-	flushed      bool
+	udpProxyPort int
+	tcpProxyPort int
 }
 
 // Run syncs dns cache intercept rules
@@ -77,8 +78,17 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	n.udpProxyAddr = conn.LocalAddr().String()
-	klog.V(2).Infof("listening on UDP %s", n.udpProxyAddr)
+
+	klog.V(2).Infof("listening on UDP %s", conn.LocalAddr().String())
+	_, port, err := net.SplitHostPort(conn.LocalAddr().String())
+	if err != nil {
+		return err
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return err
+	}
+	n.udpProxyPort = p
 
 	go func() {
 		for {
@@ -114,8 +124,17 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 		return err
 	}
 	defer tcpListener.Close()
-	n.tcpProxyAddr = tcpListener.Addr().String()
-	klog.V(2).Infof("listening on TCP %s", n.tcpProxyAddr)
+
+	klog.V(2).Infof("listening on TCP %s", tcpListener.Addr().String())
+	_, port, err = net.SplitHostPort(tcpListener.Addr().String())
+	if err != nil {
+		return err
+	}
+	p, err = strconv.Atoi(port)
+	if err != nil {
+		return err
+	}
+	n.tcpProxyPort = p
 
 	go func() {
 		for {
@@ -200,89 +219,109 @@ func (n *NAT64Agent) syncLocalRoute() error {
 
 // SyncRules syncs ip masquerade rules
 func (n *NAT64Agent) SyncRules(ctx context.Context) error {
-	table := &knftables.Table{
-		Comment: knftables.PtrTo("rules for kindnet dnscache"),
+	nft, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("portmap failure, can not start nftables:%v", err)
 	}
-	tx := n.nft.NewTransaction()
-	// do it once to delete the existing table
-	if !n.flushed {
-		tx.Add(table)
-		tx.Delete(table)
-		n.flushed = true
-	}
-	tx.Add(table)
 
-	hook := knftables.PreroutingHook
-	chainName := string(hook)
-	tx.Add(&knftables.Chain{
-		Name: chainName,
-		Type: knftables.PtrTo(knftables.FilterType),
-		Hook: knftables.PtrTo(hook),
+	table := nft.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv6,
+		Name:   tableName,
+	})
+	nft.FlushTable(table)
+
+	chain := nft.AddChain(&nftables.Chain{
+		Name:    "prerouting",
+		Table:   table,
+		Type:    nftables.ChainTypeFilter,
+		Hooknum: nftables.ChainHookPrerouting,
 		// before conntrack to avoid tproxied traffic to be natted
 		// https://wiki.nftables.org/wiki-nftables/index.php/Setting_packet_connection_tracking_metainformation
 		// https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks
-		Priority: knftables.PtrTo(knftables.RawPriority + "-10"),
-	})
-	tx.Flush(&knftables.Chain{
-		Name: chainName,
-	})
-	// bypass mark
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"meta", "mark", tproxyNAT64BypassMark, "return",
-		),
+		Priority: nftables.ChainPriorityRef(*nftables.ChainPriorityRaw - 10),
 	})
 
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"ip6 daddr", prefixNAT64,
-			"meta l4proto udp",
-			"tproxy ip6 to", n.udpProxyAddr,
-			"meta mark set", tproxyNAT64Mark,
-			"notrack",
-			"accept",
-		), // set a mark to check if there is abug in the kernel when creating the entire expression
-		Comment: ptr.To("UDP NAT64 traffic"),
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: network.EncodeWithAlignment(byte(tproxyNAT64BypassMark))},
+			&expr.Verdict{Kind: expr.VerdictReturn},
+		},
 	})
 
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"ip6 daddr", prefixNAT64,
-			"meta l4proto tcp",
-			"tproxy ip6 to", n.tcpProxyAddr,
-			"meta mark set", tproxyNAT64Mark,
-			"notrack",
-			"accept",
-		), // set a mark to check if there is abug in the kernel when creating the entire expression
-		Comment: ptr.To("TCP NAT64 traffic"),
+	// ip6 daddr 64:ff9b::/96 meta l4proto udp tproxy to [::1]:60693 meta mark set 0x0000000d notrack accept
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 12},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: prefixNAT64bytes},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.IPPROTO_UDP}},
+			&expr.Immediate{Register: 0x1, Data: net.IPv6loopback.To16()},
+			&expr.Immediate{Register: 0x2, Data: binaryutil.BigEndian.PutUint16(uint16(n.udpProxyPort))},
+			&expr.TProxy{Family: byte(nftables.TableFamilyIPv6), TableFamily: byte(nftables.TableFamilyIPv6), RegAddr: 1, RegPort: 2},
+			&expr.Immediate{Register: 0x1, Data: network.EncodeWithAlignment(byte(tproxyNAT64Mark))},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
+			&expr.Notrack{},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
 	})
 
-	// stop processing tproxied traffic
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"meta", "mark", tproxyNAT64Mark, "drop",
-		),
+	// ip6 daddr 64:ff9b::/96 meta l4proto tcp tproxy to [::1]:45217 meta mark set 0x0000000d notrack accept
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: prefixNAT64bytes},
+			&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []uint8{unix.IPPROTO_TCP}},
+			&expr.Immediate{Register: 0x1, Data: net.IPv6loopback.To16()},
+			&expr.Immediate{Register: 0x2, Data: binaryutil.BigEndian.PutUint16(uint16(n.tcpProxyPort))},
+			&expr.TProxy{Family: byte(nftables.TableFamilyIPv6), TableFamily: byte(nftables.TableFamilyIPv6), RegAddr: 1, RegPort: 2},
+			&expr.Immediate{Register: 0x1, Data: network.EncodeWithAlignment(byte(tproxyNAT64Mark))},
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: true, Register: 0x1},
+			&expr.Notrack{},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
 	})
 
-	if err := n.nft.Run(ctx, tx); err != nil {
-		klog.Infof("error syncing nftables rules %v", err)
-		return err
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyMARK, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: 0x0, Register: 0x1, Data: network.EncodeWithAlignment(byte(tproxyNAT64Mark))},
+			&expr.Verdict{Kind: expr.VerdictDrop},
+		},
+	})
+
+	err = nft.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to create kindnet-fastpath table: %v", err)
 	}
 	return nil
 }
 
 func (n *NAT64Agent) CleanRules() {
-	tx := n.nft.NewTransaction()
+	nft, err := nftables.New()
+	if err != nil {
+		klog.Infof("nat64 cleanup failure, can not start nftables:%v", err)
+		return
+	}
 	// Add+Delete is idempotent and won't return an error if the table doesn't already
 	// exist.
-	tx.Add(&knftables.Table{})
-	tx.Delete(&knftables.Table{})
+	table := nft.AddTable(&nftables.Table{
+		Family: nftables.TableFamilyIPv6,
+		Name:   tableName,
+	})
+	nft.DelTable(table)
 
-	if err := n.nft.Run(context.TODO(), tx); err != nil {
+	err = nft.Flush()
+	if err != nil {
 		klog.Infof("error deleting nftables rules %v", err)
 	}
 }
@@ -355,7 +394,7 @@ func handleUDPConn(origAddr *net.UDPAddr, dstAddr *net.UDPAddr, data []byte) {
 	}
 
 	data = make([]byte, 1500)
-	err = remoteConn.SetReadDeadline(time.Now().Add(3 * time.Second)) // Add deadline to ensure it doesn't block forever
+	err = remoteConn.SetReadDeadline(time.Now().Add(5 * time.Second)) // Add deadline to ensure it doesn't block forever
 	if err != nil {
 		klog.Infof("error setting readdeadline: %v", err)
 		return
