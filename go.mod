@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.22
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.198.1
 	github.com/containerd/nri v0.9.0
+	github.com/florianl/go-nflog/v2 v2.1.0
 	github.com/google/nftables v0.2.1-0.20241219092456-e99829fb4f26
 	github.com/prometheus/client_golang v1.20.5
 	github.com/vishvananda/netlink v1.3.0
