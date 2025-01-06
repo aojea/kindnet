@@ -11,8 +11,10 @@ import (
 
 var (
 	dnsCacheSize = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "dns_cache_total",
-		Help: "The number of entries in the dns cache per family",
+		Namespace: "kindnet",
+		Subsystem: "dns_cache",
+		Name:      "entries_total",
+		Help:      "The number of entries in the dns cache per family",
 	}, []string{"family"})
 )
 
