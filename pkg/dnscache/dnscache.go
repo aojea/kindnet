@@ -179,6 +179,8 @@ func newIPCache() *ipCache {
 
 // Run syncs dns cache intercept rules
 func (d *DNSCacheAgent) Run(ctx context.Context) error {
+	registerMetrics()
+
 	if !cache.WaitForNamedCacheSync("kindnet-dnscache", ctx.Done(), d.nodesSynced) {
 		return fmt.Errorf("error syncing cache")
 	}
