@@ -19,6 +19,7 @@ import (
 	"github.com/aojea/kindnet/pkg/fastpath"
 	"github.com/aojea/kindnet/pkg/masq"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
+	"github.com/aojea/kindnet/pkg/nflog"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -77,6 +78,7 @@ var (
 	metricsBindAddress         string
 	fastpathThreshold          int
 	disableCNI                 bool
+	nflogLevel                 int
 )
 
 func init() {
@@ -92,6 +94,8 @@ func init() {
 	flag.StringVar(&controlPlaneEndpoint, "control-plane-endpoint", "", "The URL of the control plane")
 	flag.StringVar(&metricsBindAddress, "metrics-bind-address", ":19080", "The IP address and port for the metrics server to serve on")
 	flag.IntVar(&fastpathThreshold, "fastpath-threshold", 20, "The number of packets after the traffic is offloaded to the fast path, zero disables it (default 20). Set to zero to disable it")
+
+	flag.IntVar(&nflogLevel, "nflog-level", 9, "The log level at which the TCP and UDP packets are logged to stdout (default 9)")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -282,6 +286,22 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping fastpathAgent")
+	}
+
+	if klog.V(klog.Level(nflogLevel)).Enabled() {
+		klog.Infof("Packet logging enabled")
+		nflogAgent, err := nflog.NewNFLogAgent(nflogLevel)
+		if err != nil {
+			klog.Fatalf("error creating nflog agent: %v", err)
+		}
+		go func() {
+			defer nflogAgent.CleanRules()
+			if err := nflogAgent.Run(ctx); err != nil {
+				klog.Infof("error running nflog: %v", err)
+			}
+		}()
+	} else {
+		klog.Info("Skipping nflog agent")
 	}
 
 	// network policies
