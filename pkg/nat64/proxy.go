@@ -58,6 +58,7 @@ type NAT64Agent struct {
 
 // Run syncs dns cache intercept rules
 func (n *NAT64Agent) Run(ctx context.Context) error {
+	registerMetrics()
 
 	// start listeners
 	udpLc := net.ListenConfig{Control: func(network, address string, c syscall.RawConn) error {
@@ -102,6 +103,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 				continue
 			}
 			klog.V(7).Infof("UDP connection from %s to %s", origAddr.String(), dstAddr.String())
+			connectionsTotal.WithLabelValues("udp").Inc()
 			go handleUDPConn(origAddr, dstAddr, buf[:n])
 		}
 	}()
@@ -132,6 +134,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 				return
 			}
 			klog.V(7).Infof("TCP connection from %s", conn.RemoteAddr().String())
+			connectionsTotal.WithLabelValues("tcp").Inc()
 			go handleTCPConn(conn)
 		}
 	}()
