@@ -6,10 +6,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mdlayher/netlink"
 	"github.com/ti-mo/conntrack"
 	"github.com/ti-mo/netfilter"
 	"github.com/vishvananda/netlink/nl"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/lru"
 )
 
 const (
@@ -95,7 +97,15 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 		return err
 	}
 	defer eventsConn.Close()
-
+	// reference https://lore.kernel.org/netdev/49C789F4.4050906@trash.net/T/#mfa68b0c462d1342869f4a2a152285910220f72bc
+	err = eventsConn.SetOption(netlink.BroadcastError, true)
+	if err != nil {
+		klog.Infof("could not set NETLINK_BROADCAST_SEND_ERROR option: %v", err)
+	}
+	err = eventsConn.SetOption(netlink.NoENOBUFS, true)
+	if err != nil {
+		klog.Infof("could not set NETLINK_NO_ENOBUFS option: %v", err)
+	}
 	// Make a buffered channel to receive event updates on.
 	evCh := make(chan conntrack.Event, 1024)
 
@@ -105,16 +115,25 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// Start a goroutine to process all conntrack events.
 	go func() {
-		tracker := map[uint32]time.Time{}
+		activeWorkers := numWorkers
+		for j := range errCh {
+			activeWorkers--
+			klog.Infof("conntrack events workers: %d - worker error: %v", j, activeWorkers)
+			if activeWorkers == 0 {
+				return
+			}
+		}
+	}()
+	// events are not guaranteed to be delivered so avoid to
+	// leak entries and cap the size of the tracker.
+	// key is the flow-id uint32 and value the time it has been received time.Time{}
+	tracker := lru.New(1024)
+	// we need as many workers to drain the channel to process the events
+	worker := func(ctx context.Context, evCh <-chan conntrack.Event) {
 		for {
 			select {
 			case <-ctx.Done():
-				return
-			case err := <-errCh:
-				klog.Infof("conntrack error received : %v", err)
 				return
 			case evt := <-evCh:
 				klog.V(7).Infof("event received: %s", evt.String())
@@ -124,20 +143,20 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 				switch evt.Type {
 				case conntrack.EventNew:
 					if evt.Flow.TupleOrig.Proto.Protocol == syscall.IPPROTO_TCP {
-						tracker[evt.Flow.ID] = time.Now()
+						tracker.Add(evt.Flow.ID, time.Now())
 					}
 				case conntrack.EventUpdate:
 					if evt.Flow.ProtoInfo.TCP != nil &&
 						evt.Flow.ProtoInfo.TCP.State == nl.TCP_CONNTRACK_SYN_RECV {
-						firstSeen, ok := tracker[evt.Flow.ID]
+						firstSeen, ok := tracker.Get(evt.Flow.ID)
 						if ok {
-							duration := float64(time.Since(firstSeen).Milliseconds())
+							duration := float64(time.Since(firstSeen.(time.Time)).Milliseconds())
 							metricTCPSeenReplyLatency.Observe(duration)
 						}
 					}
 				case conntrack.EventDestroy:
 					if evt.Flow.TupleOrig.Proto.Protocol == syscall.IPPROTO_TCP {
-						delete(tracker, evt.Flow.ID)
+						tracker.Remove(evt.Flow.ID)
 					}
 					proto := l4ProtoMap(evt.Flow.TupleOrig.Proto.Protocol)
 					if !evt.Flow.Timestamp.Start.IsZero() && !evt.Flow.Timestamp.Stop.IsZero() {
@@ -157,7 +176,13 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 				}
 			}
 		}
-	}()
+	}
+
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			worker(ctx, evCh)
+		}()
+	}
 
 	<-ctx.Done()
 
