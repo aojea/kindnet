@@ -181,6 +181,7 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 		if err != nil {
 			return err
 		}
+		klog.Infof("CNI config file succesfully written")
 		c.cniDone = true
 	}
 	// cloud provider specific changes required to the node

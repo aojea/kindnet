@@ -10,8 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"k8s.io/klog/v2"
 )
 
 /* cni config management */
@@ -86,6 +84,5 @@ func WriteCNIConfig(ranges []string) (err error) {
 		_ = os.Remove(cniFile)
 		return err
 	}
-	klog.Infof("CNI config file succesfully written")
 	return nil
 }
