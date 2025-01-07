@@ -150,6 +150,11 @@ func createPodInterface(netconf *NetworkConfig) error {
 		return fmt.Errorf("could not get interface %s on host : %w", oofName, err)
 	}
 
+	// set metadata on the alias field with the pod name and namespace
+	if netconf.Name != "" {
+		_ = nhRoot.LinkSetAlias(hostLink, fmt.Sprintf("%s/%s", netconf.Namespace, netconf.Name))
+	}
+
 	if err = nhRoot.LinkSetUp(hostLink); err != nil {
 		return fmt.Errorf("failed to set interface %s up: %v", oofName, err)
 	}
