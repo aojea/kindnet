@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -31,8 +32,8 @@ type NodeController struct {
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
 
-	cniDone      bool
-	providerDone bool
+	cniDone      atomic.Bool
+	providerDone atomic.Bool
 }
 
 func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer) *NodeController {
@@ -176,26 +177,26 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 		return syncRoute(node)
 	}
 	// compute the current cni config inputs for our own node
-	if len(node.Spec.PodCIDRs) > 0 && !c.cniDone {
+	if len(node.Spec.PodCIDRs) > 0 && !c.cniDone.Load() {
 		err := WriteCNIConfig(node.Spec.PodCIDRs)
 		if err != nil {
 			return err
 		}
 		klog.Infof("CNI config file succesfully written")
-		c.cniDone = true
+		c.cniDone.Store(true)
 	}
 	// cloud provider specific changes required to the node
 
 	// AWS requires to disable the source destination check
 	// to allow traffic between Pods
-	if strings.Contains(node.Spec.ProviderID, "aws") && !c.providerDone {
+	if strings.Contains(node.Spec.ProviderID, "aws") && !c.providerDone.Load() {
 		klog.Infof("detected cloud provider: AWS")
 		err := disableAWSSrcDstCheck()
 		if err != nil {
 			return err
 		}
 		klog.Infof("AWS SourceDestCheck disabled")
-		c.providerDone = true
+		c.providerDone.Store(true)
 	}
 	return nil
 }
