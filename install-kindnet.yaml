@@ -74,7 +74,6 @@ spec:
         k8s-app: kindnet
     spec:
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
       tolerations:
       - operator: Exists
         effect: NoSchedule
@@ -116,9 +115,7 @@ spec:
             cpu: "100m"
             memory: "50Mi"
         securityContext:
-          privileged: false
-          capabilities:
-            add: ["NET_RAW", "NET_ADMIN"]
+          privileged: true
       volumes:
       - name: cni-bin
         hostPath:
