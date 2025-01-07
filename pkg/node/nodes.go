@@ -31,7 +31,8 @@ type NodeController struct {
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
 
-	cniDone bool
+	cniDone      bool
+	providerDone bool
 }
 
 func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer) *NodeController {
@@ -186,11 +187,14 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 
 	// AWS requires to disable the source destination check
 	// to allow traffic between Pods
-	if strings.Contains(node.Spec.ProviderID, "aws") {
+	if strings.Contains(node.Spec.ProviderID, "aws") && !c.providerDone {
+		klog.Infof("detected cloud provider: AWS")
 		err := disableAWSSrcDstCheck()
 		if err != nil {
 			return err
 		}
+		klog.Infof("AWS SourceDestCheck disabled")
+		c.providerDone = true
 	}
 	return nil
 }
