@@ -52,12 +52,6 @@ func createPodInterface(netconf *NetworkConfig) error {
 	nameData := nl.NewRtAttr(unix.IFLA_IFNAME, nl.ZeroTerminated(iifName))
 	req.AddData(nameData)
 
-	// set MTU if defined
-	if netconf.MTU > 0 {
-		mtuData := nl.NewRtAttr(unix.IFLA_MTU, nl.Uint32Attr(uint32(netconf.MTU)))
-		req.AddData(mtuData)
-	}
-
 	// base namespace is the container namespace
 	val := nl.Uint32Attr(uint32(containerNs))
 	attr := nl.NewRtAttr(unix.IFLA_NET_NS_FD, val)
@@ -152,7 +146,18 @@ func createPodInterface(netconf *NetworkConfig) error {
 
 	// set metadata on the alias field with the pod name and namespace
 	if netconf.Name != "" {
-		_ = nhRoot.LinkSetAlias(hostLink, fmt.Sprintf("%s/%s", netconf.Namespace, netconf.Name))
+		err = nhRoot.LinkSetAlias(hostLink, fmt.Sprintf("link-pod %s/%s", netconf.Namespace, netconf.Name))
+		if err != nil {
+			logger.Printf("could not set interface %s alias : %v", oofName, err)
+		}
+	}
+
+	// set MTU if defined
+	if netconf.MTU > 0 {
+		err = nhRoot.LinkSetMTU(hostLink, netconf.MTU)
+		if err != nil {
+			return fmt.Errorf("could not set interface %s mtu : %w", oofName, err)
+		}
 	}
 
 	if err = nhRoot.LinkSetUp(hostLink); err != nil {
@@ -296,25 +301,7 @@ func getDefaultGwInterfaceMTU() int {
 	}
 
 	for _, r := range routes {
-		// no multipath
-		if len(r.MultiPath) == 0 {
-			if r.Gw == nil {
-				continue
-			}
-			intfLink, err := netlink.LinkByIndex(r.LinkIndex)
-			if err != nil {
-				logger.Printf("Failed to get interface link for route %v : %v", r, err)
-				continue
-			}
-			return intfLink.Attrs().MTU
-		}
-
-		// multipath, use the first valid entry
-		// xref: https://github.com/vishvananda/netlink/blob/6ffafa9fc19b848776f4fd608c4ad09509aaacb4/route.go#L137-L145
-		for _, nh := range r.MultiPath {
-			if nh.Gw == nil {
-				continue
-			}
+		if r.Dst.IP.Equal(net.IPv4zero) || r.Dst.IP.Equal(net.IPv6zero) {
 			intfLink, err := netlink.LinkByIndex(r.LinkIndex)
 			if err != nil {
 				logger.Printf("Failed to get interface link for route %v : %v", r, err)
