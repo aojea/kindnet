@@ -3,6 +3,7 @@ package conntrack
 import (
 	"context"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -155,13 +156,14 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 						}
 					}
 				case conntrack.EventDestroy:
+					var duration time.Duration
 					if evt.Flow.TupleOrig.Proto.Protocol == syscall.IPPROTO_TCP {
 						tracker.Remove(evt.Flow.ID)
 					}
 					proto := l4ProtoMap(evt.Flow.TupleOrig.Proto.Protocol)
 					if !evt.Flow.Timestamp.Start.IsZero() && !evt.Flow.Timestamp.Stop.IsZero() {
-						duration := evt.Flow.Timestamp.Stop.Sub(evt.Flow.Timestamp.Start).Seconds()
-						metricDurationHist.WithLabelValues(proto).Observe(duration)
+						duration = evt.Flow.Timestamp.Stop.Sub(evt.Flow.Timestamp.Start)
+						metricDurationHist.WithLabelValues(proto).Observe(duration.Seconds())
 					}
 					if evt.Flow.CountersOrig.Bytes > 0 || evt.Flow.CountersReply.Bytes > 0 {
 						bytes := float64(evt.Flow.CountersOrig.Bytes + evt.Flow.CountersReply.Bytes)
@@ -172,7 +174,17 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 						metricPacketsHist.WithLabelValues(proto).Observe(pkts)
 					}
 
-					klog.V(4).Infof("Connection finished: %s", evt.String())
+					// log connecvtions summary
+					klog.V(4).Infof("connection: %s\torig: src=%s:%d dst=%s:%d packets=%d bytes=%d -- reply: src=%s:%d dst=%s:%d packets=%d bytes=%d duration=%v",
+						proto,
+						evt.Flow.TupleOrig.IP.SourceAddress.String(), evt.Flow.TupleOrig.Proto.SourcePort,
+						evt.Flow.TupleOrig.IP.DestinationAddress.String(), evt.Flow.TupleOrig.Proto.DestinationPort,
+						evt.Flow.CountersOrig.Packets, evt.Flow.CountersOrig.Bytes,
+						evt.Flow.TupleReply.IP.SourceAddress.String(), evt.Flow.TupleReply.Proto.SourcePort,
+						evt.Flow.TupleReply.IP.DestinationAddress.String(), evt.Flow.TupleReply.Proto.DestinationPort,
+						evt.Flow.CountersReply.Packets, evt.Flow.CountersReply.Bytes,
+						duration,
+					)
 				}
 			}
 		}
@@ -211,7 +223,7 @@ func l4ProtoMap(t uint8) string {
 	case syscall.IPPROTO_SCTP:
 		return "sctp"
 	default:
-		return "unknown"
+		return strconv.Itoa(int(t))
 	}
 }
 
