@@ -14,8 +14,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/aojea/kindnet/pkg/network"
-
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"k8s.io/klog/v2"
@@ -74,13 +72,6 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 	}
 
 	// UDP NAT64 proxy
-	// use mtu as max size of the UDP packet
-	mtu, err := network.GetMTU(unix.AF_INET6)
-	if err != nil {
-		klog.Infof("Failed to get MTU size from interface eth0, using kernel default MTU size error:%v", err)
-		mtu = 1500
-	}
-
 	conn, err := udpLc.ListenPacket(context.Background(), "udp6", "[::1]:0")
 	if err != nil {
 		return err
@@ -91,7 +82,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 
 	go func() {
 		for {
-			buf := make([]byte, mtu)
+			buf := make([]byte, 9100)
 			udpConn, ok := conn.(*net.UDPConn)
 			if !ok {
 				klog.Infof("invalid connection type, not UDP")
