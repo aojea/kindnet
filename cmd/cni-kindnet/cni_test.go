@@ -539,11 +539,11 @@ func TestHostPort(t *testing.T) {
 			}
 
 			cmd := exec.Command("nft", "list", "table", "inet", "cni-kindnet")
-			out, err := cmd.CombinedOutput()
+			_, err = cmd.CombinedOutput()
 			if err != nil {
 				t.Errorf("no table cni-kindnet on namespace: %v", err)
 			}
-			t.Logf("rules after ADD: %s", string(out))
+			// t.Logf("rules after ADD: %s", string(out))
 
 			// we need to dial from the host otherwise we need to set route_localnet on IPv4 and does not work for IPv6
 			// Use the first address from the range since is the one added by the CNI command to the container interface on the host to be used as default gw.
@@ -569,7 +569,7 @@ func TestHostPort(t *testing.T) {
 				if err != nil {
 					t.Fatalf("could not read response body: %v\n", err)
 				}
-				t.Logf("client: response body: %s\n", string(resBody))
+				// t.Logf("client: response body: %s\n", string(resBody))
 				if !strings.Contains(string(resBody), "Connection from") {
 					t.Fatalf("unexpected response body: %s\n", string(resBody))
 				}
@@ -581,11 +581,11 @@ func TestHostPort(t *testing.T) {
 			}
 
 			cmd = exec.Command("nft", "list", "table", "inet", "cni-kindnet")
-			out, err = cmd.CombinedOutput()
+			_, err = cmd.CombinedOutput()
 			if err != nil {
 				t.Errorf("no connectivity from namespace: %v", err)
 			}
-			t.Logf("rules after DEL: %s", string(out))
+			// t.Logf("rules after DEL: %s", string(out))
 
 			// TODO test check
 			err = cmdCheck(args)
