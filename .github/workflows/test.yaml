@@ -19,6 +19,6 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
     - uses: actions/checkout@v4
-    - run: make test
+    - run: sudo make test
     - run: make lint
 
