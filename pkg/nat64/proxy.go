@@ -4,6 +4,7 @@ package nat64
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -183,7 +184,7 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 
 func (n *NAT64Agent) syncLocalRoute() error {
 	link, err := netlink.LinkByName("lo")
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return fmt.Errorf("failed to find 'lo' link: %v", err)
 	}
 

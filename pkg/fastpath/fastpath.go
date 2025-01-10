@@ -4,6 +4,7 @@ package fastpath
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/nftables/binaryutil"
 	"github.com/google/nftables/expr"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 	"golang.org/x/time/rate"
 
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -89,7 +91,7 @@ func (ma *FastPathAgent) getNodeInterfaces() (sets.Set[string], error) {
 	ifNames := sets.New[string]()
 
 	links, err := netlink.LinkList()
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return ifNames, err
 	}
 
