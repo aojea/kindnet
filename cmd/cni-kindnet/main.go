@@ -95,7 +95,7 @@ func start() error {
 	}
 	dbPath := filepath.Join(dbDir, dbFile)
 
-	db, err = sql.Open("sqlite3", dbPath)
+	db, err = sql.Open("sqlite3", dbPath+"?_busy_timeout=1000")
 	if err != nil {
 		return fmt.Errorf("can not open cni database %s : %v", dbPath, err)
 	}
