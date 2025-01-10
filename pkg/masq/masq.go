@@ -53,7 +53,6 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 	if !cache.WaitForNamedCacheSync("kindnet-ipmasq", ctx.Done(), ma.nodesSynced) {
 		return fmt.Errorf("error syncing cache")
 	}
-	klog.Info("Syncing nftables rules")
 	errs := 0
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -82,6 +81,7 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 
 // SyncRules syncs ip masquerade rules
 func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
+	klog.V(2).Info("Syncing kindnet-ipmasq nftables rules")
 	nft, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("kindnet ipamsq failure, can not start nftables: %v", err)

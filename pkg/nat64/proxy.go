@@ -155,7 +155,6 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 		klog.Infof("error syncing local route: %v", err)
 	}
 
-	klog.Info("Syncing nftables rules")
 	ticker := time.NewTicker(n.interval)
 	defer ticker.Stop()
 	errs := 0
@@ -219,6 +218,7 @@ func (n *NAT64Agent) syncLocalRoute() error {
 
 // SyncRules syncs ip masquerade rules
 func (n *NAT64Agent) SyncRules(ctx context.Context) error {
+	klog.V(2).Info("Syncing kindnet-nat64 nftables rules")
 	nft, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("portmap failure, can not start nftables:%v", err)
