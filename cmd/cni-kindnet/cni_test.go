@@ -121,6 +121,8 @@ func TestCNIPlugin(t *testing.T) {
 
 			// check connectivity from the namespace
 			func() {
+				runtime.LockOSThread()
+				defer runtime.UnlockOSThread()
 				err := netns.Set(testNS)
 				if err != nil {
 					t.Fatal(err)
@@ -189,7 +191,7 @@ func TestAddDel(t *testing.T) {
 	var successes atomic.Uint64
 	var wg sync.WaitGroup
 	for i := 0; i < total; i++ {
-
+		time.Sleep(10 * time.Millisecond) // avoid flakiness due to races with netlink
 		runtime.LockOSThread()
 		rndString := make([]byte, 4)
 		_, err := rand.Read(rndString)
@@ -309,7 +311,7 @@ func TestAdds(t *testing.T) {
 	var wg sync.WaitGroup
 	argsCh := make(chan *skel.CmdArgs, total)
 	for i := 0; i < total; i++ {
-
+		time.Sleep(10 * time.Millisecond) // avoid flakiness due to races with netlink
 		runtime.LockOSThread()
 		rndString := make([]byte, 4)
 		_, err := rand.Read(rndString)

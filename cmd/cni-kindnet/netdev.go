@@ -3,11 +3,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
@@ -89,14 +91,14 @@ func createPodInterface(netconf *NetworkConfig) error {
 		return err
 	}
 	loLink, err := nhNs.LinkByName("lo")
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return fmt.Errorf("could not get interface loopback on namespace %s : %w", netconf.NetNS, err)
 	}
 	_ = nhNs.LinkSetUp(loLink)
 
 	// set up the veth inside the container
 	nsLink, err := nhNs.LinkByName(iifName)
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return fmt.Errorf("could not get interface %s on namespace %s : %w", iifName, netconf.NetNS, err)
 	}
 
@@ -140,7 +142,7 @@ func createPodInterface(netconf *NetworkConfig) error {
 	}
 
 	hostLink, err := nhRoot.LinkByName(oofName)
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return fmt.Errorf("could not get interface %s on host : %w", oofName, err)
 	}
 
@@ -188,6 +190,9 @@ func createPodInterface(netconf *NetworkConfig) error {
 			Dst:       addressGw.IPNet,
 		}
 
+		// TODO: investigate why this flake and IPv4 not
+		// cni_test.go:119: CNI ADD command failed: fail to create veth interface: could not add route {Ifindex: 43656 Dst: 2001:db8::7775:5443:1309:8685/128 Src: 2001:db8:: Gw: <nil> Flags: [] Table: 0 Realm: 0} on the host to the container interface knetb3773c91 : invalid argument
+		time.Sleep(10 * time.Millisecond)
 		if err := nhNs.RouteAdd(&routeToGateway); err != nil {
 			return fmt.Errorf("could not add route to default gw on namespace %s : %w", netconf.NetNS, err)
 		}
@@ -211,7 +216,7 @@ func createPodInterface(netconf *NetworkConfig) error {
 			Dst:       address.IPNet,
 		}
 		if err := nhRoot.RouteAdd(&route); err != nil {
-			return fmt.Errorf("could not add route on host to the container interface %s : %w", hostLink.Attrs().Name, err)
+			return fmt.Errorf("could not add route %v on host to the container interface %s : %w", route, hostLink.Attrs().Name, err)
 		}
 	}
 
@@ -262,7 +267,7 @@ func createPodInterface(netconf *NetworkConfig) error {
 			Dst:       address.IPNet,
 		}
 		if err := nhRoot.RouteAdd(&route); err != nil {
-			return fmt.Errorf("could not add route on the host to the container interface %s : %w", hostLink.Attrs().Name, err)
+			return fmt.Errorf("could not add route %v on the host to the container interface %s : %w", route, hostLink.Attrs().Name, err)
 		}
 	}
 	return nil
@@ -282,7 +287,7 @@ func deletePodInterface(ifName string, netNS string) error {
 	}
 
 	nsLink, err := nhNs.LinkByName(ifName)
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		// interface is no present so no need to delete
 		return nil
 	}
@@ -296,7 +301,7 @@ func deletePodInterface(ifName string, netNS string) error {
 
 func getDefaultGwInterfaceMTU() int {
 	routes, err := netlink.RouteList(nil, netlink.FAMILY_ALL)
-	if err != nil {
+	if err != nil && !errors.Is(err, unix.EINTR) {
 		return 0
 	}
 

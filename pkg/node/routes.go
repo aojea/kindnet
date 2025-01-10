@@ -3,8 +3,11 @@
 package node
 
 import (
+	"errors"
+
 	"github.com/vishvananda/netlink"
 	"github.com/vishvananda/netlink/nl"
+	"golang.org/x/sys/unix"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -54,7 +57,7 @@ func syncRoute(node *v1.Node) error {
 			// Check if the route exists to the other node's PodCIDR
 			routeToDst := netlink.Route{Dst: dst, Gw: nodeIP}
 			routes, err := netlink.RouteListFiltered(nl.GetIPFamily(nodeIP), &routeToDst, netlink.RT_FILTER_DST)
-			if err != nil {
+			if err != nil && !errors.Is(err, unix.EINTR) {
 				return err
 			}
 			// Add route if not present
@@ -90,7 +93,7 @@ func deleteRoutes(node *v1.Node) error {
 			// Check if the route exists to the other node's PodCIDR
 			routeToDst := netlink.Route{Dst: dst, Gw: nodeIP}
 			route, err := netlink.RouteListFiltered(nl.GetIPFamily(nodeIP), &routeToDst, netlink.RT_FILTER_DST)
-			if err != nil {
+			if err != nil && !errors.Is(err, unix.EINTR) {
 				return err
 			}
 
