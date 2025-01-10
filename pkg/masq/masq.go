@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/aojea/kindnet/pkg/network"
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
+	"golang.org/x/sys/unix"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -15,21 +19,15 @@ import (
 	v1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
-	"sigs.k8s.io/knftables"
 )
+
+const tableName = "kindnet-ipmasq"
 
 // NewIPMasqAgent returns a new IPMasqAgent that avoids masquerading the intra-cluster traffic
 // but allows to masquerade the cluster to external traffic.
 func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs string) (*IPMasqAgent, error) {
-	klog.V(2).Info("Initializing nftables")
-	nft, err := knftables.New(knftables.InetFamily, "kindnet-ipmasq")
-	if err != nil {
-		return nil, err
-	}
 	v4, v6 := network.SplitCIDRs(noMasqueradeCIDRs)
 	return &IPMasqAgent{
-		nft:         nft,
 		nodeLister:  nodeInformer.Lister(),
 		nodesSynced: nodeInformer.Informer().HasSynced,
 		noMasqV4:    v4,
@@ -41,12 +39,10 @@ func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs s
 // but collapsed into kindnetd and made ipv6 aware in an opinionated and simplified
 // fashion using "github.com/coreos/go-iptables"
 type IPMasqAgent struct {
-	nft         knftables.Interface
 	nodeLister  v1.NodeLister
 	nodesSynced cache.InformerSynced
 	noMasqV4    []string
 	noMasqV6    []string
-	flushed     bool
 }
 
 // SyncRulesForever syncs ip masquerade rules forever
@@ -86,39 +82,19 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 
 // SyncRules syncs ip masquerade rules
 func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
-	table := &knftables.Table{
-		Comment: knftables.PtrTo("rules for kindnet masquerading"),
+	nft, err := nftables.New()
+	if err != nil {
+		return fmt.Errorf("kindnet ipamsq failure, can not start nftables: %v", err)
 	}
-	tx := ma.nft.NewTransaction()
-	// do it once to delete the existing table
-	if !ma.flushed {
-		tx.Add(table)
-		tx.Delete(table)
-		ma.flushed = true
-	}
-	tx.Add(table)
 
-	// add set with the CIDRs that should not be masqueraded
-	tx.Add(&knftables.Set{
-		Name:      "noMasqV4",
-		Type:      "ipv4_addr",
-		Flags:     []knftables.SetFlag{knftables.IntervalFlag},
-		AutoMerge: ptr.To(true),
-		Comment:   ptr.To("IPv4 CIDRs that should not be masqueraded"),
-	})
-	tx.Flush(&knftables.Set{
-		Name: "noMasqV4",
-	})
-	tx.Add(&knftables.Set{
-		Name:      "noMasqV6",
-		Type:      "ipv6_addr",
-		Flags:     []knftables.SetFlag{knftables.IntervalFlag},
-		AutoMerge: ptr.To(true),
-		Comment:   ptr.To("IPv6 CIDRs that should not be masqueraded"),
-	})
-	tx.Flush(&knftables.Set{
-		Name: "noMasqV6",
-	})
+	// add + delete + add for flushing all the table
+	table := &nftables.Table{
+		Name:   tableName,
+		Family: nftables.TableFamilyINet,
+	}
+	nft.AddTable(table)
+	nft.DelTable(table)
+	nft.AddTable(table)
 
 	v4CIDRs := sets.New[string]()
 	v6CIDRs := sets.New[string]()
@@ -148,84 +124,144 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 		}
 	}
 
+	var elementsV4, elementsV6 []nftables.SetElement
 	for _, cidr := range v4CIDRs.UnsortedList() {
 		klog.V(7).Infof("Adding %s to set noMasqV4", cidr)
-		tx.Add(&knftables.Element{
-			Set: "noMasqV4",
-			Key: []string{cidr},
-		})
+		first, last, err := network.FirstAndNextSubnetAddr(cidr)
+		if err != nil {
+			klog.Infof("not able to parse %s : %v", cidr, err)
+			continue
+		}
+		elementsV4 = append(elementsV4,
+			nftables.SetElement{Key: first.AsSlice(), IntervalEnd: false},
+			nftables.SetElement{Key: last.AsSlice(), IntervalEnd: true},
+		)
 	}
+
 	for _, cidr := range v6CIDRs.UnsortedList() {
 		klog.V(7).Infof("Adding %s to set noMasqV6", cidr)
-		tx.Add(&knftables.Element{
-			Set: "noMasqV6",
-			Key: []string{cidr},
-		})
+		first, last, err := network.FirstAndNextSubnetAddr(cidr)
+		if err != nil {
+			klog.Infof("not able to parse %s : %v", cidr, err)
+			continue
+		}
+
+		elementsV6 = append(elementsV6,
+			nftables.SetElement{Key: first.AsSlice(), IntervalEnd: false},
+			nftables.SetElement{Key: last.AsSlice(), IntervalEnd: true},
+		)
 	}
-	hook := knftables.PostroutingHook
-	chainName := string(hook)
-	tx.Add(&knftables.Chain{
-		Name:     chainName,
-		Type:     knftables.PtrTo(knftables.NATType),
-		Hook:     knftables.PtrTo(hook),
-		Priority: knftables.PtrTo(knftables.SNATPriority + "-5"),
-	})
-	tx.Flush(&knftables.Chain{
-		Name: chainName,
+
+	setV4 := &nftables.Set{
+		Table:     table,
+		Name:      "noMasqV4",
+		KeyType:   nftables.TypeIPAddr,
+		Interval:  true,
+		AutoMerge: true,
+	}
+
+	setV6 := &nftables.Set{
+		Table:     table,
+		Name:      "noMasqV6",
+		KeyType:   nftables.TypeIP6Addr,
+		Interval:  true,
+		AutoMerge: true,
+	}
+
+	if err := nft.AddSet(setV4, elementsV4); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", setV4.Name, err)
+	}
+
+	if err := nft.AddSet(setV6, elementsV6); err != nil {
+		return fmt.Errorf("failed to add Set %s : %v", setV6.Name, err)
+	}
+
+	chain := nft.AddChain(&nftables.Chain{
+		Name:     "postrouting",
+		Table:    table,
+		Type:     nftables.ChainTypeNAT,
+		Hooknum:  nftables.ChainHookPostrouting,
+		Priority: nftables.ChainPriorityRef(*nftables.ChainPriorityNATSource - 10),
 	})
 
-	tx.Add(&knftables.Rule{
-		Chain:   chainName,
-		Rule:    "ct state established,related accept",
-		Comment: ptr.To("skip stablished"),
+	//  ct state established,related accept
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Ct{Register: 0x1, SourceRegister: false, Key: expr.CtKeySTATE, Direction: 0x0},
+			&expr.Bitwise{SourceRegister: 0x1, DestRegister: 0x1, Len: 0x4, Mask: binaryutil.NativeEndian.PutUint32(expr.CtStateBitESTABLISHED | expr.CtStateBitRELATED), Xor: []byte{0x0, 0x0, 0x0, 0x0}},
+			&expr.Cmp{Op: expr.CmpOpNeq, Register: 0x1, Data: []byte{0x0, 0x0, 0x0, 0x0}},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
 	})
 
-	// skip local traffic
-	tx.Add(&knftables.Rule{
-		Chain:   chainName,
-		Rule:    "fib daddr type local accept",
-		Comment: ptr.To("skip local traffic"),
+	// fib daddr type local accept comment "skip local traffic"
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Fib{Register: 0x1, FlagSADDR: true, ResultADDRTYPE: true},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: network.EncodeWithAlignment(byte(unix.RTN_LOCAL))},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		},
+	})
+	// ip daddr @noMasqV4 accept comment "no masquerade IPv4 traffic"
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV4}},
+			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 0x4},
+			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: "noMasqV4", Invert: false},
+		},
+	})
+	// ip6 daddr @noMasqV6 accept comment "no masquerade IPv6 traffic"
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyNFPROTO, SourceRegister: false, Register: 0x1},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV6}},
+			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
+			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: "noMasqV6", Invert: false},
+		},
 	})
 
-	// ignore other Pods and defined cidrs
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"ip", "daddr", "@", "noMasqV4", "accept",
-		),
-		Comment: ptr.To("no masquerade IPv4 traffic"),
+	// masquerade comment "masquerade traffic"
+	nft.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Masq{Random: false, FullyRandom: false, Persistent: false, ToPorts: false, RegProtoMin: 0x0, RegProtoMax: 0x0},
+			&expr.Counter{},
+		},
 	})
 
-	tx.Add(&knftables.Rule{
-		Chain: chainName,
-		Rule: knftables.Concat(
-			"ip6", "daddr", "@", "noMasqV6", "accept",
-		),
-		Comment: ptr.To("no masquerade IPv6 traffic"),
-	})
-
-	// masquerade the rest of the traffic
-	tx.Add(&knftables.Rule{
-		Chain:   chainName,
-		Rule:    "masquerade",
-		Comment: ptr.To("masquerade traffic"),
-	})
-
-	if err := ma.nft.Run(ctx, tx); err != nil {
-		klog.Infof("error syncing nftables rules %v", err)
-		return err
+	err = nft.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to create kindnet-ipmasq table: %v", err)
 	}
 	return nil
 }
 
 func (ma *IPMasqAgent) CleanRules() {
-	tx := ma.nft.NewTransaction()
+	nft, err := nftables.New()
+	if err != nil {
+		klog.Infof("ipmasq cleanup failure, can not start nftables:%v", err)
+		return
+	}
 	// Add+Delete is idempotent and won't return an error if the table doesn't already
 	// exist.
-	tx.Add(&knftables.Table{})
-	tx.Delete(&knftables.Table{})
+	table := &nftables.Table{
+		Name:   tableName,
+		Family: nftables.TableFamilyINet,
+	}
+	nft.DelTable(table)
 
-	if err := ma.nft.Run(context.TODO(), tx); err != nil {
+	err = nft.Flush()
+	if err != nil {
 		klog.Infof("error deleting nftables rules %v", err)
 	}
 }

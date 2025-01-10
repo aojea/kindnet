@@ -3,50 +3,47 @@ package network
 import (
 	"bytes"
 	"encoding/binary"
-	"net"
+	"fmt"
+	"net/netip"
 )
 
-// From https://github.com/google/nftables/blob/e99829fb4f26d75fdd0cfce8ba4632744e72c2bc/util.go#L49C1-L89C2
-// NetFirstAndLastIP takes the beginning address of an entire network in CIDR
-// notation (e.g. 192.168.1.0/24) and returns the first and last IP addresses
-// within the network (e.g. first 192.168.1.0, last 192.168.1.255).
+// FirstAndNextSubnetAddr takes the beginning address of an entire network in CIDR
+// notation (e.g. 192.168.1.0/24) and returns the first addresses
+// within the network and the first address of the next network (e.g. first 192.168.1.0, next 192.168.2.0).
 //
-// Note that these are the first and last IP addresses, not the first and last
-// *usable* IP addresses (which would be 192.168.1.1 and 192.168.1.254,
-// respectively, for 192.168.1.0/24).
-func NetFirstAndLastIP(networkCIDR string) (first, last net.IP, err error) {
-	_, subnet, err := net.ParseCIDR(networkCIDR)
+// Note: nftables needs half-open intervals [firstIP, lastIP) for prefixes
+// e.g. 10.0.0.0/24 becomes [10.0.0.0, 10.0.1.0), 10.1.1.1/32 becomes [10.1.1.1, 10.1.1.2) etc
+func FirstAndNextSubnetAddr(networkCIDR string) (first, next netip.Addr, err error) {
+	subnet, err := netip.ParsePrefix(networkCIDR)
 	if err != nil {
-		return nil, nil, err
+		return netip.Addr{}, netip.Addr{}, err
 	}
 
-	first = make(net.IP, len(subnet.IP))
-	last = make(net.IP, len(subnet.IP))
-
-	switch len(subnet.IP) {
-	case net.IPv4len:
-		mask := binary.BigEndian.Uint32(subnet.Mask)
-		ip := binary.BigEndian.Uint32(subnet.IP)
-		// To achieve the first IP address, we need to AND the IP with the mask.
-		// The AND operation will set all bits in the host part to 0.
-		binary.BigEndian.PutUint32(first, ip&mask)
-		// To achieve the last IP address, we need to OR the IP network with the inverted mask.
-		// The AND between the IP and the mask will set all bits in the host part to 0, keeping the network part.
-		// The XOR between the mask and 0xffffffff will set all bits in the host part to 1, and the network part to 0.
-		// The OR operation will keep the host part unchanged, and sets the host part to all 1.
-		binary.BigEndian.PutUint32(last, (ip&mask)|(mask^0xffffffff))
-	case net.IPv6len:
-		mask1 := binary.BigEndian.Uint64(subnet.Mask[:8])
-		mask2 := binary.BigEndian.Uint64(subnet.Mask[8:])
-		ip1 := binary.BigEndian.Uint64(subnet.IP[:8])
-		ip2 := binary.BigEndian.Uint64(subnet.IP[8:])
-		binary.BigEndian.PutUint64(first[:8], ip1&mask1)
-		binary.BigEndian.PutUint64(first[8:], ip2&mask2)
-		binary.BigEndian.PutUint64(last[:8], (ip1&mask1)|(mask1^0xffffffffffffffff))
-		binary.BigEndian.PutUint64(last[8:], (ip2&mask2)|(mask2^0xffffffffffffffff))
+	first = subnet.Masked().Addr()
+	// The broadcast address is obtained by setting all the host bits
+	// in a subnet to 1.
+	// network 192.168.0.0/24 : subnet bits 24 host bits 32 - 24 = 8
+	// broadcast address 192.168.0.255
+	bytes := first.AsSlice()
+	// get all the host bits from the subnet
+	n := 8*len(bytes) - subnet.Bits()
+	// set all the host bits to 1
+	for i := len(bytes) - 1; i >= 0 && n > 0; i-- {
+		if n >= 8 {
+			bytes[i] = 0xff
+			n -= 8
+		} else {
+			mask := ^uint8(0) >> (8 - n)
+			bytes[i] |= mask
+			break
+		}
+	}
+	addr, ok := netip.AddrFromSlice(bytes)
+	if !ok {
+		return netip.Addr{}, netip.Addr{}, fmt.Errorf("invalid address %v", bytes)
 	}
 
-	return first, last, nil
+	return first, addr.Next(), nil
 }
 
 func EncodeWithAlignment(data any) []byte {
