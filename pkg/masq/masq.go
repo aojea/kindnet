@@ -215,6 +215,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV4}},
 			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 0x4},
 			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: "noMasqV4", Invert: false},
+			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 	})
 	// ip6 daddr @noMasqV6 accept comment "no masquerade IPv6 traffic"
@@ -226,6 +227,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.NFPROTO_IPV6}},
 			&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
 			&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: "noMasqV6", Invert: false},
+			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
 	})
 

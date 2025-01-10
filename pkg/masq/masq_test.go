@@ -52,8 +52,8 @@ table inet kindnet-ipmasq {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
               fib saddr type local accept
-              ip daddr @noMasqV4
-              ip6 daddr @noMasqV6
+              ip daddr @noMasqV4 accept
+              ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
       }
 }
@@ -86,8 +86,8 @@ table inet kindnet-ipmasq {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
               fib saddr type local accept
-              ip daddr @noMasqV4
-              ip6 daddr @noMasqV6
+              ip daddr @noMasqV4 accept
+              ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
       }
 }
@@ -121,8 +121,8 @@ table inet kindnet-ipmasq {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
               fib saddr type local accept
-              ip daddr @noMasqV4
-              ip6 daddr @noMasqV6
+              ip daddr @noMasqV4 accept
+              ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
       }
 }
@@ -160,8 +160,8 @@ table inet kindnet-ipmasq {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
               fib saddr type local accept
-              ip daddr @noMasqV4
-              ip6 daddr @noMasqV6
+              ip daddr @noMasqV4 accept
+              ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
       }
 }
