@@ -42,6 +42,11 @@ func TestCNIPlugin(t *testing.T) {
 
 	for _, rt := range tests {
 		t.Run(rt.name, func(t *testing.T) {
+			null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			os.Stdout = null
 			tempDir, err := ioutil.TempDir("", "temp")
 			if err != nil {
 				t.Errorf("create tempDir: %v", err)
@@ -64,7 +69,12 @@ func TestCNIPlugin(t *testing.T) {
 			}
 			defer origns.Close()
 
-			nsName := "test-ns"
+			rndString := make([]byte, 4)
+			_, err = rand.Read(rndString)
+			if err != nil {
+				t.Errorf("fail to generate random name: %v", err)
+			}
+			nsName := fmt.Sprintf("ns%x", rndString)
 			testNS, err := netns.NewNamed(nsName)
 			if err != nil {
 				t.Fatalf("Failed to create network namespace: %v", err)
@@ -141,7 +151,11 @@ func TestAddDel(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("Test requires root privileges.")
 	}
-
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = null
 	now := time.Now()
 	total := 300
 	tempDir, err := ioutil.TempDir("", "temp")
@@ -219,6 +233,8 @@ func TestAddDel(t *testing.T) {
 			if err := cmdAdd(args); err != nil {
 				success = false
 				t.Errorf("CNI ADD command failed: %v", err)
+				out, _ := exec.Command("ip", "link").CombinedOutput()
+				t.Logf("ip link: %s", string(out))
 			}
 
 			//  Execute DEL command
@@ -252,6 +268,11 @@ func TestAdds(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("Test requires root privileges.")
 	}
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = null
 
 	now := time.Now()
 	total := 300
@@ -448,7 +469,12 @@ func TestHostPort(t *testing.T) {
 			}
 			defer origns.Close()
 
-			nsName := "test-ns"
+			rndString := make([]byte, 4)
+			_, err = rand.Read(rndString)
+			if err != nil {
+				t.Errorf("fail to generate random name: %v", err)
+			}
+			nsName := fmt.Sprintf("ns%x", rndString)
 			testNS, err := netns.NewNamed(nsName)
 			if err != nil {
 				t.Fatalf("Failed to create network namespace: %v", err)
@@ -508,7 +534,7 @@ func TestHostPort(t *testing.T) {
 			cmd := exec.Command("nft", "list", "table", "inet", "cni-kindnet")
 			out, err := cmd.CombinedOutput()
 			if err != nil {
-				t.Errorf("no connectivity from namespace: %v", err)
+				t.Errorf("no table cni-kindnet on namespace: %v", err)
 			}
 			t.Logf("rules after ADD: %s", string(out))
 
