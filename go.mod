@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.198.3
 	github.com/containerd/nri v0.9.0
 	github.com/florianl/go-nflog/v2 v2.1.0
+	github.com/google/go-cmp v0.6.0
 	github.com/google/nftables v0.2.1-0.20241219092456-e99829fb4f26
 	github.com/mdlayher/netlink v1.7.2
 	github.com/prometheus/client_golang v1.20.5
@@ -52,7 +53,6 @@ require (
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.25.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
@@ -102,7 +102,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/vishvananda/netns v0.0.5 // indirect
+	github.com/vishvananda/netns v0.0.5
 	golang.org/x/net v0.34.0
 	golang.org/x/oauth2 v0.25.0 // indirect
 	golang.org/x/sys v0.29.0
