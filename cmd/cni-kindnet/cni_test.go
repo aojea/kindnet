@@ -169,7 +169,6 @@ func TestAddDel(t *testing.T) {
 	}
 	t.Logf("logs on %s", tempDir)
 	dbDir = tempDir
-	t.Setenv("CNI_LOG_FILE", filepath.Join(tempDir, "test.log"))
 	t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 	// initialize variables
@@ -177,6 +176,8 @@ func TestAddDel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	logger = log.New(os.Stdout, "", 0) // 0 flag for no timestamps/prefixes
 
 	// Save the current network namespace
 	origns, err := netns.Get()
@@ -287,7 +288,6 @@ func TestAdds(t *testing.T) {
 	}
 	t.Logf("logs on %s", tempDir)
 	dbDir = tempDir
-	t.Setenv("CNI_LOG_FILE", filepath.Join(tempDir, "test.log"))
 	t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 	// initialize variables
@@ -295,6 +295,8 @@ func TestAdds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	logger = log.New(os.Stdout, "", 0) // 0 flag for no timestamps/prefixes
 
 	// Save the current network namespace
 	origns, err := netns.Get()
@@ -456,8 +458,6 @@ func TestHostPort(t *testing.T) {
 			}
 			t.Logf("logs on %s", tempDir)
 			dbDir = tempDir
-			t.Setenv("CNI_LOG_FILE", filepath.Join(tempDir, "test.log"))
-			// t.Setenv("CNI_KINDNET_DEBUG_NETLINK", "true")
 			t.Cleanup(func() { os.RemoveAll(tempDir) })
 
 			// initialize variables
@@ -465,6 +465,8 @@ func TestHostPort(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			logger = log.New(os.Stdout, "", 0) // 0 flag for no timestamps/prefixes
+
 			// 1. Prepare test environment
 			// Save the current network namespace
 			runtime.LockOSThread()
