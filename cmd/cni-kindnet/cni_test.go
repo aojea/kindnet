@@ -27,6 +27,11 @@ import (
 	"github.com/vishvananda/netns"
 )
 
+// avoid problems with shared state
+func TestMain(m *testing.M) {
+	os.Exit(m.Run())
+}
+
 func TestCNIPlugin(t *testing.T) {
 	if os.Getuid() != 0 {
 		t.Skip("Test requires root privileges.")
