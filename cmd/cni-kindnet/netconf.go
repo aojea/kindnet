@@ -12,12 +12,9 @@ import (
 	"net"
 	"net/netip"
 	"strings"
-	"sync"
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-
-	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func getInterfaceName() string {
@@ -272,11 +269,6 @@ func getIPConfig(netconf *NetworkConfig) error {
 		return err
 	}
 
-	v4s, v6s, err := listIPAddresses()
-	if err != nil {
-		return fmt.Errorf("unable to obtain existing IP addresses: %v", err)
-	}
-
 	for _, cidr := range cidrs {
 		// skip ip families already allocated
 		if cidr.Addr().Is4() && netconf.IPv4 != nil {
@@ -285,68 +277,30 @@ func getIPConfig(netconf *NetworkConfig) error {
 		if cidr.Addr().Is6() && netconf.IPv6 != nil {
 			continue
 		}
-		// Create an in memory allocator for better performance
+		// Create an allocator
 		alloc, err := NewAllocator(cidr)
 		if err != nil {
 			logger.Printf("can not allocate addresses from %s : %v", cidr.String(), err)
 			continue
 		}
-		if cidr.Addr().Is4() {
-			for _, ip := range v4s {
-				addr, err := netip.ParseAddr(ip)
-				if err != nil {
-					logger.Printf("can not parse addresses from %s : %v", ip, err)
-					continue
-				}
-				alloc.AllocateAddress(addr)
-			}
-		}
-		if cidr.Addr().Is6() {
-			for _, ip := range v6s {
-				addr, err := netip.ParseAddr(ip)
-				if err != nil {
-					logger.Printf("can not parse addresses from %s : %v", ip, err)
-					continue
-				}
-				alloc.AllocateAddress(addr)
-			}
-		}
+
 		// This range is full try other
 		if alloc.Free() == 0 {
 			continue
 		}
-		ip, err := alloc.Allocate()
+
+		ip, err := alloc.Allocate(netconf.ContainerID)
 		if err != nil {
 			logger.Printf("can not obtain addresses from %s : %v", cidr.String(), err)
 			continue
 		}
 
 		if cidr.Addr().Is4() {
-			// Insert the container ID and IPv4 address into the database
-			_, err := db.Exec(`
-			UPDATE pods
-			SET ip_address_v4 = ?, ip_gateway_v4 = ?
-			WHERE container_id = ?
-		`, ip.String(), cidr.Masked().Addr().String(), netconf.ContainerID)
-			if err != nil {
-				logger.Printf("error updating container ID and IPv4 %s : %v", cidr.String(), err)
-				continue
-			}
 			netconf.IPv4 = net.IP(ip.AsSlice())
 			netconf.GWv4 = net.IP(cidr.Masked().Addr().AsSlice())
 		}
 
 		if cidr.Addr().Is6() {
-			// Insert the container ID and IPv4 address into the database
-			_, err := db.Exec(`
-			UPDATE pods
-			SET ip_address_v6 = ?, ip_gateway_v6 = ?
-			WHERE container_id = ?
-`, ip.String(), cidr.Masked().Addr().String(), netconf.ContainerID)
-			if err != nil {
-				logger.Printf("error updating container ID and IPv6 %s : %v", cidr.String(), err)
-				continue
-			}
 			netconf.IPv6 = net.IP(ip.AsSlice())
 			netconf.GWv6 = net.IP(cidr.Masked().Addr().AsSlice())
 		}
@@ -359,9 +313,7 @@ func getIPConfig(netconf *NetworkConfig) error {
 }
 
 type Allocator struct {
-	mu       sync.Mutex
 	cidr     netip.Prefix
-	store    sets.Set[netip.Addr]
 	ipFirst  netip.Addr
 	ipLast   netip.Addr
 	size     uint64
@@ -408,10 +360,60 @@ func NewAllocator(cidr netip.Prefix) (*Allocator, error) {
 		cidr:     cidr,
 		size:     size,
 		reserved: reserved,
-		store:    sets.Set[netip.Addr]{},
 		ipFirst:  ipFirst,
 		ipLast:   ipLast,
 	}, nil
+}
+
+func ipExists(ip netip.Addr) (bool, error) {
+	var count int
+	var err error
+
+	if ip.Is4() {
+		err = db.QueryRow("SELECT COUNT(*) FROM pods WHERE ip_address_v4 = ?", ip.String()).Scan(&count)
+	} else if ip.Is6() {
+		err = db.QueryRow("SELECT COUNT(*) FROM pods WHERE ip_address_v6 = ?", ip.String()).Scan(&count)
+	} else {
+		return false, fmt.Errorf("invalid IP address type")
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+func ipInsert(ip netip.Addr, cidr netip.Prefix, id string) error {
+	var result sql.Result
+	var err error
+
+	if cidr.Addr().Is4() {
+		// Insert the container ID and IPv4 address into the database
+		result, err = db.Exec(`
+		UPDATE pods
+		SET ip_address_v4 = ?, ip_gateway_v4 = ?
+		WHERE container_id = ?
+	`, ip.String(), cidr.Masked().Addr().String(), id)
+	} else if cidr.Addr().Is6() {
+		// Insert the container ID and IPv4 address into the database
+		result, err = db.Exec(`
+		UPDATE pods
+		SET ip_address_v6 = ?, ip_gateway_v6 = ?
+		WHERE container_id = ?
+`, ip.String(), cidr.Masked().Addr().String(), id)
+	}
+	if err != nil {
+		return fmt.Errorf("error updating container ID and IP %s : %v", cidr.String(), err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return fmt.Errorf("update didn't succeed, rows affected %d", rowsAffected)
+	}
+	return nil
 }
 
 // IP iterator allows to iterate over all the IP addresses
@@ -450,10 +452,7 @@ func ipIterator(first netip.Addr, last netip.Addr, offset uint64) func() netip.A
 	}
 }
 
-func (a *Allocator) Allocate() (netip.Addr, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
+func (a *Allocator) Allocate(id string) (netip.Addr, error) {
 	rangeSize := a.size - uint64(a.reserved)
 	var offset uint64
 	switch {
@@ -472,42 +471,85 @@ func (a *Allocator) Allocate() (netip.Addr, error) {
 			break
 		}
 		// IP already exist
-		if a.store.Has(ip) {
+		ok, err := ipExists(ip)
+		if err != nil {
+			logger.Printf("error trying to check if ip %s exists : %v", ip.String(), err)
 			continue
 		}
-		a.store.Insert(ip)
+		if ok {
+			continue
+		}
+
+		err = ipInsert(ip, a.cidr, id)
+		if err != nil {
+			logger.Printf("error trying to store ip %s: %v", ip.String(), err)
+			continue
+		}
 		return ip, nil
 
 	}
 	return netip.Addr{}, fmt.Errorf("allocator full")
 }
 
-func (a *Allocator) AllocateAddress(ip netip.Addr) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+func (a *Allocator) AllocateAddress(ip netip.Addr, id string) error {
 	if !a.cidr.Contains(ip) {
 		return fmt.Errorf("address %s out of range %s", ip.String(), a.cidr.String())
 	}
-	if a.store.Has(ip) {
+	ok, err := ipExists(ip)
+	if err != nil {
+		logger.Printf("error trying to check if ip %s exists : %v", ip.String(), err)
+		return err
+	}
+	if ok {
 		return fmt.Errorf("address %s allready allocated", ip.String())
 	}
 	if a.ipFirst.Compare(ip) == 1 {
 		return fmt.Errorf("address %s on the reserved space, lower than %s", ip.String(), a.ipFirst.String())
 	}
-	a.store.Insert(ip)
+	err = ipInsert(ip, a.cidr, id)
+	if err != nil {
+		logger.Printf("error trying to store ip %s: %v", ip.String(), err)
+		return err
+	}
 	return nil
 }
 
 func (a *Allocator) Release(ip netip.Addr) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.store, ip)
+	if ip.Is4() {
+		_, _ = db.Exec("DELETE FROM pods WHERE ip_address_v4 = ?", ip.String())
+	} else if ip.Is6() {
+		_, _ = db.Exec("DELETE FROM pods WHERE ip_address_v6 = ?", ip.String())
+	}
 }
 
 func (a *Allocator) Free() int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return int(a.size) - len(a.store) - a.reserved
+	v4s, v6s, err := listIPAddresses()
+	if err != nil {
+		return 0
+	}
+	count := 0
+	if a.cidr.Addr().Is4() {
+		for _, ip := range v4s {
+			addr, err := netip.ParseAddr(ip)
+			if err != nil {
+				continue
+			}
+			if a.cidr.Contains(addr) {
+				count++
+			}
+		}
+	} else if a.cidr.Addr().Is6() {
+		for _, ip := range v6s {
+			addr, err := netip.ParseAddr(ip)
+			if err != nil {
+				continue
+			}
+			if a.cidr.Contains(addr) {
+				count++
+			}
+		}
+	}
+	return int(a.size) - count - a.reserved
 }
 
 // broadcastAddress returns the broadcast address of the subnet

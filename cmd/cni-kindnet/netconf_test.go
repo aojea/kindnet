@@ -3,18 +3,42 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
+	"log"
 	"net/netip"
+	"os"
 	"reflect"
 	"testing"
 )
 
 func TestAllocator(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "temp")
+	if err != nil {
+		t.Errorf("create tempDir: %v", err)
+	}
+	t.Logf("logs on %s", tempDir)
+	dbDir = tempDir
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+	// initialize variables
+	err = start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	logger = log.New(os.Stdout, "", 0) // 0 flag for no timestamps/prefixes
+
 	a, err := NewAllocator(netip.MustParsePrefix("192.168.1.0/25"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// can not allocate on the reserved space
-	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.2"))
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-static-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.2"), "id-static-1")
 	if err == nil {
 		t.Fatal("can not alllocate on the reserved space")
 	}
@@ -22,45 +46,81 @@ func TestAllocator(t *testing.T) {
 	allocatable := a.size - uint64(a.reserved)
 	var i uint64
 	for i = 0; i < allocatable; i++ {
-		_, err := a.Allocate()
+		id := fmt.Sprintf("id-%d", i)
+		err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err := a.Allocate(id)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// it should fail to allocate since it is full
-	ip, err := a.Allocate()
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-should-fail-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip, err := a.Allocate("id-should-fail-1")
 	if err == nil {
-		t.Fatalf("unexpected success %s", ip.String())
+		t.Errorf("unexpected success %s", ip.String())
 	}
 	if a.Free() != 0 {
-		t.Fatalf("no free addresses expected, got %d", a.Free())
+		t.Errorf("no free addresses expected, got %d", a.Free())
 	}
 
 	// release and allocate manually
 	a.Release(netip.MustParseAddr("192.168.1.33"))
 	if a.Free() != 1 {
-		t.Fatalf("one free addresses expected, got %d", a.Free())
+		t.Errorf("one free addresses expected, got %d", a.Free())
 	}
-	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.33"))
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-static-2"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	err = a.AllocateAddress(netip.MustParseAddr("192.168.1.33"), "id-static-2")
+	if err != nil {
+		t.Error(err)
+	}
 
 	// it should fail to allocate since it is full
-	ip, err = a.Allocate()
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-should-fail-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip, err = a.Allocate("id-should-fail-2")
 	if err == nil {
-		t.Fatalf("unexpected success %s", ip.String())
+		t.Errorf("unexpected success %s", ip.String())
 	}
 }
 
 func TestAllocatorV6(t *testing.T) {
+	tempDir, err := ioutil.TempDir("", "temp")
+	if err != nil {
+		t.Errorf("create tempDir: %v", err)
+	}
+	t.Logf("logs on %s", tempDir)
+	dbDir = tempDir
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+	// initialize variables
+	err = start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger = log.New(os.Stdout, "", 0) // 0 flag for no timestamps/prefixes
+
 	a, err := NewAllocator(netip.MustParsePrefix("2001:db8::/64"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// can not allocate on the reserved space
-	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::2"))
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-static-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::2"), "id-static-1")
 	if err == nil {
 		t.Fatal("can not alllocate on the reserved space")
 	}
@@ -68,20 +128,33 @@ func TestAllocatorV6(t *testing.T) {
 	// let's try some allocations
 	var i uint64
 	for i = 0; i < 100; i++ {
-		_, err := a.Allocate()
+		id := fmt.Sprintf("id-%d", i)
+		err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err := a.Allocate(id)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 	// release and allocate manually
 	a.Release(netip.MustParseAddr("2001:db8::aa"))
-	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"))
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-static-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"), "id-static-2")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// it should fail to allocate since it is alreadya allocated
-	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"))
+	err = writeNetworkConfigWithoutIPs(&NetworkConfig{ContainerID: "id-static-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.AllocateAddress(netip.MustParseAddr("2001:db8::aa"), "id-static-3")
 	if err == nil {
 		t.Fatalf("unexpected success for IP 2001:db8::aa")
 	}
