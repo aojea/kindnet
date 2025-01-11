@@ -9,6 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.198.3
 	github.com/containerd/nri v0.9.0
 	github.com/florianl/go-nflog/v2 v2.1.0
+	github.com/florianl/go-nfqueue v1.3.2
 	github.com/google/go-cmp v0.6.0
 	github.com/google/nftables v0.2.1-0.20241219092456-e99829fb4f26
 	github.com/mdlayher/netlink v1.7.2
@@ -24,8 +25,7 @@ require (
 	k8s.io/cri-api v0.32.0
 	k8s.io/cri-client v0.32.0
 	k8s.io/klog/v2 v2.130.1
-	sigs.k8s.io/knftables v0.0.18
-	sigs.k8s.io/kube-network-policies v0.6.1
+	sigs.k8s.io/kube-network-policies v0.7.0
 	sigs.k8s.io/network-policy-api v0.1.5
 )
 
@@ -49,7 +49,6 @@ require (
 	github.com/containerd/ttrpc v1.2.7 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/florianl/go-nfqueue v1.3.2 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/gnostic-models v0.6.9 // indirect
