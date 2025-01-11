@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: APACHE-2.0
 
-package nflog
+package network
 
 import (
 	"encoding/binary"
@@ -12,7 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-type packet struct {
+type Packet struct {
 	id      uint32
 	family  v1.IPFamily
 	srcIP   net.IP
@@ -26,12 +26,12 @@ type packet struct {
 var ErrorTooShort = fmt.Errorf("packet too short")
 var ErrorCorrupted = fmt.Errorf("packet corrupted")
 
-func (p packet) String() string {
+func (p Packet) String() string {
 	return fmt.Sprintf("[%d] %s:%d %s:%d %s\n%s", p.id, p.srcIP.String(), p.srcPort, p.dstIP.String(), p.dstPort, p.proto, hex.Dump(p.payload))
 }
 
 // This function is used for JSON output (interface logr.Marshaler)
-func (p packet) MarshalLog() any {
+func (p Packet) MarshalLog() any {
 	return &struct {
 		ID      uint32
 		Family  v1.IPFamily
@@ -54,8 +54,8 @@ func (p packet) MarshalLog() any {
 // https://en.wikipedia.org/wiki/Internet_Protocol_version_4#Packet_structure
 // https://en.wikipedia.org/wiki/IPv6_packet
 // https://github.com/golang/net/blob/master/ipv4/header.go
-func parsePacket(b []byte) (packet, error) {
-	t := packet{}
+func ParsePacket(b []byte) (Packet, error) {
+	t := Packet{}
 	if len(b) < 20 {
 		// 20 is the minimum length of an IPv4 header (IPv6 is 40)
 		return t, ErrorTooShort
