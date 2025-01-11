@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	tableName         = "kindnet-fastpath"
 	kindnetFlowtable  = "kindnet-flowtables"
 	kindnetSetDevices = "kindnet-set-devices"
 	fastPathChain     = "kindnet-fastpath-chain"
@@ -121,7 +122,7 @@ func (ma *FastPathAgent) syncRules(devices []string) error {
 
 	// add + delete + add for flushing all the table
 	fastpathTable := &nftables.Table{
-		Name:   "kindnet-fastpath",
+		Name:   tableName,
 		Family: nftables.TableFamilyINet,
 	}
 	nft.AddTable(fastpathTable)
@@ -218,7 +219,7 @@ func (ma *FastPathAgent) CleanRules() {
 	// exist.
 	fastpathTable := nft.AddTable(&nftables.Table{
 		Family: nftables.TableFamilyINet,
-		Name:   "kindnet-fastpath",
+		Name:   tableName,
 	})
 	nft.DelTable(fastpathTable)
 
