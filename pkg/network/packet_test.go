@@ -21,7 +21,7 @@ func TestUDPFragmentIPv6(t *testing.T) {
 	// 3. An unfragmented reply UDP packet
 	// We expect:
 	// 1. Identified as an UDP packet
-	// 2. Unknown protocol (44)
+	// 2. Unknown Protocol (44)
 	// 3. Identified as an UDP packet
 	tests := []struct {
 		name     string
@@ -33,28 +33,28 @@ func TestUDPFragmentIPv6(t *testing.T) {
 			name:  "UDP first fragment",
 			input: packetsUDPFragIPv6[0],
 			expected: Packet{
-				family:  v1.IPv6Protocol,
-				proto:   v1.ProtocolUDP,
-				dstIP:   net.ParseIP("fd00::c0a8:101"),
-				dstPort: 5001,
+				Family:  v1.IPv6Protocol,
+				Proto:   v1.ProtocolUDP,
+				DstIP:   net.ParseIP("fd00::c0a8:101"),
+				DstPort: 5001,
 			},
 		},
 		{
 			name:  "UDP not-first fragment",
 			input: packetsUDPFragIPv6[1],
 			expected: Packet{
-				family: v1.IPv6Protocol,
-				dstIP:  net.ParseIP("fd00::c0a8:101"),
+				Family: v1.IPv6Protocol,
+				DstIP:  net.ParseIP("fd00::c0a8:101"),
 			},
 		},
 		{
 			name:  "UDP packet (un-fragmented)",
 			input: packetsUDPFragIPv6[2],
 			expected: Packet{
-				family:  v1.IPv6Protocol,
-				proto:   v1.ProtocolUDP,
-				srcIP:   net.ParseIP("fd00::c0a8:101"),
-				srcPort: 5001,
+				Family:  v1.IPv6Protocol,
+				Proto:   v1.ProtocolUDP,
+				SrcIP:   net.ParseIP("fd00::c0a8:101"),
+				SrcPort: 5001,
 			},
 		},
 	}
@@ -82,88 +82,88 @@ func TestTCPIPv4(t *testing.T) {
 			name:  "SYN",
 			input: packetsTCPIPv4[0],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.1"),
-				dstPort: 5001,
-				srcIP:   net.ParseIP("192.168.1.201"),
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.1"),
+				DstPort: 5001,
+				SrcIP:   net.ParseIP("192.168.1.201"),
 			},
 		},
 		{
 			name:  "SYN, ACK",
 			input: packetsTCPIPv4[1],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.201"),
-				srcIP:   net.ParseIP("192.168.1.1"),
-				srcPort: 5001,
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.201"),
+				SrcIP:   net.ParseIP("192.168.1.1"),
+				SrcPort: 5001,
 			},
 		},
 		{
 			name:  "ACK 1",
 			input: packetsTCPIPv4[2],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.1"),
-				dstPort: 5001,
-				srcIP:   net.ParseIP("192.168.1.2+1"),
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.1"),
+				DstPort: 5001,
+				SrcIP:   net.ParseIP("192.168.1.2+1"),
 			},
 		},
 		{
 			name:  "PSH, ACK",
 			input: packetsTCPIPv4[3],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.201"),
-				srcIP:   net.ParseIP("192.168.1.1"),
-				srcPort: 5001,
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.201"),
+				SrcIP:   net.ParseIP("192.168.1.1"),
+				SrcPort: 5001,
 			},
 		},
 		{
 			name:  "ACK 7",
 			input: packetsTCPIPv4[4],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.1"),
-				dstPort: 5001,
-				srcIP:   net.ParseIP("192.168.1.2+1"),
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.1"),
+				DstPort: 5001,
+				SrcIP:   net.ParseIP("192.168.1.2+1"),
 			},
 		},
 		{
 			name:  "FIN, ACK 7",
 			input: packetsTCPIPv4[5],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.1"),
-				dstPort: 5001,
-				srcIP:   net.ParseIP("192.168.1.201"),
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.1"),
+				DstPort: 5001,
+				SrcIP:   net.ParseIP("192.168.1.201"),
 			},
 		},
 		{
 			name:  "FIN, ACK 2",
 			input: packetsTCPIPv4[6],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.201"),
-				srcIP:   net.ParseIP("192.168.1.1"),
-				srcPort: 5001,
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.201"),
+				SrcIP:   net.ParseIP("192.168.1.1"),
+				SrcPort: 5001,
 			},
 		},
 		{
 			name:  "ACK 8",
 			input: packetsTCPIPv4[7],
 			expected: Packet{
-				family:  v1.IPv4Protocol,
-				proto:   v1.ProtocolTCP,
-				dstIP:   net.ParseIP("192.168.1.1"),
-				dstPort: 5001,
-				srcIP:   net.ParseIP("192.168.1.201"),
+				Family:  v1.IPv4Protocol,
+				Proto:   v1.ProtocolTCP,
+				DstIP:   net.ParseIP("192.168.1.1"),
+				DstPort: 5001,
+				SrcIP:   net.ParseIP("192.168.1.201"),
 			},
 		},
 	}
@@ -201,31 +201,31 @@ func TestTooShortPackets(t *testing.T) {
 }
 
 func comparePacket(t *testing.T, tc string, expected, got Packet) {
-	if got.family != expected.family {
-		t.Fatalf("%s: family: expected=%v, got=%v", tc, expected.family, got.family)
+	if got.Family != expected.Family {
+		t.Fatalf("%s: Family: expected=%v, got=%v", tc, expected.Family, got.Family)
 	}
-	if got.proto != expected.proto {
-		t.Fatalf("%s: proto: expected=%v, got=%v", tc, expected.proto, got.proto)
+	if got.Proto != expected.Proto {
+		t.Fatalf("%s: Proto: expected=%v, got=%v", tc, expected.Proto, got.Proto)
 	}
 	// Compare other fields only if expected (never compare id and payload)
-	if expected.srcIP != nil {
-		if !got.srcIP.Equal(expected.srcIP) {
-			t.Fatalf("%s: srcIP: expected=%v, got=%v", tc, expected.srcIP, got.srcIP)
+	if expected.SrcIP != nil {
+		if !got.SrcIP.Equal(expected.SrcIP) {
+			t.Fatalf("%s: SrcIP: expected=%v, got=%v", tc, expected.SrcIP, got.SrcIP)
 		}
 	}
-	if expected.srcPort > 0 {
-		if got.srcPort != expected.srcPort {
-			t.Fatalf("%s: srcPort: expected=%v, got=%v", tc, expected.srcPort, got.srcPort)
+	if expected.SrcPort > 0 {
+		if got.SrcPort != expected.SrcPort {
+			t.Fatalf("%s: SrcPort: expected=%v, got=%v", tc, expected.SrcPort, got.SrcPort)
 		}
 	}
-	if expected.dstIP != nil {
-		if !got.dstIP.Equal(expected.dstIP) {
-			t.Fatalf("%s: dstIP: expected=%v, got=%v", tc, expected.dstIP, got.dstIP)
+	if expected.DstIP != nil {
+		if !got.DstIP.Equal(expected.DstIP) {
+			t.Fatalf("%s: DstIP: expected=%v, got=%v", tc, expected.DstIP, got.DstIP)
 		}
 	}
-	if expected.dstPort > 0 {
-		if got.dstPort != expected.dstPort {
-			t.Fatalf("%s: dstPort: expected=%v, got=%v", tc, expected.dstPort, got.dstPort)
+	if expected.DstPort > 0 {
+		if got.DstPort != expected.DstPort {
+			t.Fatalf("%s: DstPort: expected=%v, got=%v", tc, expected.DstPort, got.DstPort)
 		}
 	}
 }

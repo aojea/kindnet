@@ -13,21 +13,21 @@ import (
 )
 
 type Packet struct {
-	id      uint32
-	family  v1.IPFamily
-	srcIP   net.IP
-	dstIP   net.IP
-	proto   v1.Protocol
-	srcPort int
-	dstPort int
-	payload []byte
+	ID      uint32
+	Family  v1.IPFamily
+	SrcIP   net.IP
+	DstIP   net.IP
+	Proto   v1.Protocol
+	SrcPort int
+	DstPort int
+	Payload []byte
 }
 
 var ErrorTooShort = fmt.Errorf("packet too short")
 var ErrorCorrupted = fmt.Errorf("packet corrupted")
 
 func (p Packet) String() string {
-	return fmt.Sprintf("[%d] %s:%d %s:%d %s\n%s", p.id, p.srcIP.String(), p.srcPort, p.dstIP.String(), p.dstPort, p.proto, hex.Dump(p.payload))
+	return fmt.Sprintf("[%d] %s:%d %s:%d %s\n%s", p.ID, p.SrcIP.String(), p.SrcPort, p.DstIP.String(), p.DstPort, p.Proto, hex.Dump(p.Payload))
 }
 
 // This function is used for JSON output (interface logr.Marshaler)
@@ -41,13 +41,13 @@ func (p Packet) MarshalLog() any {
 		SrcPort int
 		DstPort int
 	}{
-		p.id,
-		p.family,
-		p.srcIP,
-		p.dstIP,
-		p.proto,
-		p.srcPort,
-		p.dstPort,
+		p.ID,
+		p.Family,
+		p.SrcIP,
+		p.DstIP,
+		p.Proto,
+		p.SrcPort,
+		p.DstPort,
 	}
 }
 
@@ -65,7 +65,7 @@ func ParsePacket(b []byte) (Packet, error) {
 	var protocol, l4offset, nxtHeader int
 	switch version {
 	case 4:
-		t.family = v1.IPv4Protocol
+		t.Family = v1.IPv4Protocol
 		hdrlen := int(b[0]&0x0f) * 4 // (header length in 32-bit words)
 		if hdrlen < 20 {
 			return t, ErrorCorrupted
@@ -74,8 +74,8 @@ func ParsePacket(b []byte) (Packet, error) {
 		if l4offset >= len(b) {
 			return t, ErrorTooShort
 		}
-		t.srcIP = net.IPv4(b[12], b[13], b[14], b[15])
-		t.dstIP = net.IPv4(b[16], b[17], b[18], b[19])
+		t.SrcIP = net.IPv4(b[12], b[13], b[14], b[15])
+		t.DstIP = net.IPv4(b[16], b[17], b[18], b[19])
 		protocol = int(b[9])
 		// IPv4 fragments:
 		// Since the conntracker is always used in K8s, IPv4 fragments
@@ -83,16 +83,16 @@ func ParsePacket(b []byte) (Packet, error) {
 		// re-assembled by the kernel. Please see:
 		// https://unix.stackexchange.com/questions/650790/unwanted-defragmentation-of-forwarded-ipv4-packets
 	case 6:
-		t.family = v1.IPv6Protocol
+		t.Family = v1.IPv6Protocol
 		if len(b) < 48 {
 			// 40 is the minimum length of an IPv6 header, and 8 is
 			// the minimum lenght of an extension or L4 header
 			return t, ErrorTooShort
 		}
-		t.srcIP = make(net.IP, net.IPv6len)
-		copy(t.srcIP, b[8:24])
-		t.dstIP = make(net.IP, net.IPv6len)
-		copy(t.dstIP, b[24:40])
+		t.SrcIP = make(net.IP, net.IPv6len)
+		copy(t.SrcIP, b[8:24])
+		t.DstIP = make(net.IP, net.IPv6len)
+		copy(t.DstIP, b[24:40])
 		// Handle extension headers.
 		nxtHeader = int(b[6])
 		l4offset = 40
@@ -137,17 +137,17 @@ func ParsePacket(b []byte) (Packet, error) {
 	var payloadOffset int
 	switch protocol {
 	case syscall.IPPROTO_TCP:
-		t.proto = v1.ProtocolTCP
+		t.Proto = v1.ProtocolTCP
 		dataOffset := int(b[l4offset+12]>>4) * 4
 		if dataOffset < 20 {
 			return t, ErrorCorrupted
 		}
 		payloadOffset = l4offset + dataOffset
 	case syscall.IPPROTO_UDP:
-		t.proto = v1.ProtocolUDP
+		t.Proto = v1.ProtocolUDP
 		payloadOffset = l4offset + 8
 	case syscall.IPPROTO_SCTP:
-		t.proto = v1.ProtocolSCTP
+		t.Proto = v1.ProtocolSCTP
 		payloadOffset = l4offset + 8
 	default:
 		// Return a packet with t.proto unset, and ports 0
@@ -159,10 +159,10 @@ func ParsePacket(b []byte) (Packet, error) {
 		// incomplete L4 header
 		return t, ErrorTooShort
 	}
-	t.srcPort = int(binary.BigEndian.Uint16(b[l4offset : l4offset+2]))
-	t.dstPort = int(binary.BigEndian.Uint16(b[l4offset+2 : l4offset+4]))
+	t.SrcPort = int(binary.BigEndian.Uint16(b[l4offset : l4offset+2]))
+	t.DstPort = int(binary.BigEndian.Uint16(b[l4offset+2 : l4offset+4]))
 
 	// TODO allow to filter by the payload
-	t.payload = b[payloadOffset:]
+	t.Payload = b[payloadOffset:]
 	return t, nil
 }
