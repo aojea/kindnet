@@ -22,7 +22,7 @@ Kindnet can be customized through the use of flags passed to the kind create clu
   -nat64
         If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true on IPv6 clusters)
   -network-policy
-        If set, enable Network Policies (default true) (default true)
+        If set, enable Network Policies (default true)
   -no-masquerade-cidr string
         Comma seperated list of CIDRs that will not be masqueraded.
   -fastpath-threshold int
