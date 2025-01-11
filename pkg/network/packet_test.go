@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: APACHE-2.0
 
-package nflog
+package network
 
 // Test data is generated from captured pcap file using:
 // https://github.com/uablrek/pcap2go
@@ -27,12 +27,12 @@ func TestUDPFragmentIPv6(t *testing.T) {
 		name     string
 		input    []byte
 		err      bool
-		expected packet
+		expected Packet
 	}{
 		{
 			name:  "UDP first fragment",
 			input: packetsUDPFragIPv6[0],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv6Protocol,
 				proto:   v1.ProtocolUDP,
 				dstIP:   net.ParseIP("fd00::c0a8:101"),
@@ -42,7 +42,7 @@ func TestUDPFragmentIPv6(t *testing.T) {
 		{
 			name:  "UDP not-first fragment",
 			input: packetsUDPFragIPv6[1],
-			expected: packet{
+			expected: Packet{
 				family: v1.IPv6Protocol,
 				dstIP:  net.ParseIP("fd00::c0a8:101"),
 			},
@@ -50,7 +50,7 @@ func TestUDPFragmentIPv6(t *testing.T) {
 		{
 			name:  "UDP packet (un-fragmented)",
 			input: packetsUDPFragIPv6[2],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv6Protocol,
 				proto:   v1.ProtocolUDP,
 				srcIP:   net.ParseIP("fd00::c0a8:101"),
@@ -59,7 +59,7 @@ func TestUDPFragmentIPv6(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		packet, err := parsePacket(tc.input)
+		packet, err := ParsePacket(tc.input)
 		if err != nil {
 			if !tc.err {
 				t.Fatalf("%s: unexpected error: %v", tc.name, err)
@@ -76,12 +76,12 @@ func TestTCPIPv4(t *testing.T) {
 		name     string
 		input    []byte
 		err      bool
-		expected packet
+		expected Packet
 	}{
 		{
 			name:  "SYN",
 			input: packetsTCPIPv4[0],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.1"),
@@ -92,7 +92,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "SYN, ACK",
 			input: packetsTCPIPv4[1],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.201"),
@@ -103,7 +103,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "ACK 1",
 			input: packetsTCPIPv4[2],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.1"),
@@ -114,7 +114,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "PSH, ACK",
 			input: packetsTCPIPv4[3],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.201"),
@@ -125,7 +125,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "ACK 7",
 			input: packetsTCPIPv4[4],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.1"),
@@ -136,7 +136,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "FIN, ACK 7",
 			input: packetsTCPIPv4[5],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.1"),
@@ -147,7 +147,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "FIN, ACK 2",
 			input: packetsTCPIPv4[6],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.201"),
@@ -158,7 +158,7 @@ func TestTCPIPv4(t *testing.T) {
 		{
 			name:  "ACK 8",
 			input: packetsTCPIPv4[7],
-			expected: packet{
+			expected: Packet{
 				family:  v1.IPv4Protocol,
 				proto:   v1.ProtocolTCP,
 				dstIP:   net.ParseIP("192.168.1.1"),
@@ -168,7 +168,7 @@ func TestTCPIPv4(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		packet, err := parsePacket(tc.input)
+		packet, err := ParsePacket(tc.input)
 		if err != nil {
 			if !tc.err {
 				t.Fatalf("%s: unexpected error: %v", tc.name, err)
@@ -184,23 +184,23 @@ func TestTooShortPackets(t *testing.T) {
 	rawPacket := packetsUDPFragIPv6[0]
 	var err error
 	// Test a nil packet
-	_, err = parsePacket(nil)
+	_, err = ParsePacket(nil)
 	if err == nil {
 		t.Fatalf("No error when parsing a nil-packet")
 	}
 	for i := 0; i < 56; i++ {
-		_, err = parsePacket(rawPacket[:i])
+		_, err = ParsePacket(rawPacket[:i])
 		if err == nil {
 			t.Fatalf("No error when parsing a packet, length=%d", i)
 		}
 	}
-	_, err = parsePacket(rawPacket[:56])
+	_, err = ParsePacket(rawPacket[:56])
 	if err != nil {
 		t.Fatalf("Error when parsing a complete packet")
 	}
 }
 
-func comparePacket(t *testing.T, tc string, expected, got packet) {
+func comparePacket(t *testing.T, tc string, expected, got Packet) {
 	if got.family != expected.family {
 		t.Fatalf("%s: family: expected=%v, got=%v", tc, expected.family, got.family)
 	}

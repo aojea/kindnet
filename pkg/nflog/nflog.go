@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"syscall"
 
+	"github.com/aojea/kindnet/pkg/network"
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 
@@ -57,7 +58,7 @@ func (n *NFLogAgent) Run(ctx context.Context) error {
 
 	// hook that is called for every received packet by the nflog group
 	hook := func(attrs nflog.Attribute) int {
-		packet, err := parsePacket(*attrs.Payload)
+		packet, err := network.ParsePacket(*attrs.Payload)
 		if err != nil {
 			logger.Error(err, "Can not process packet")
 			return 0
@@ -106,17 +107,18 @@ func (n *NFLogAgent) syncRules() error {
 		Table:    table,
 		Type:     nftables.ChainTypeFilter,
 		Hooknum:  nftables.ChainHookPrerouting,
-		Priority: nftables.ChainPriorityMangle, // before DNAT
+		Priority: nftables.ChainPriorityRef(*nftables.ChainPriorityNATDest + 5),
 	})
-
+	logFlags := expr.LogFlagsIPOpt + expr.LogFlagsTCPOpt + expr.LogFlagsUID
+	snaplen := uint32(64)
 	// Log first and last packet of each connection
 	nft.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: chain,
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
-			&expr.Cmp{Op: 0x0, Register: 0x1, Data: []byte{syscall.IPPROTO_TCP}},
-			&expr.Log{Level: 0x0, Flags: 0x0, Key: 0x2, Snaplen: 0x0, Group: 100, QThreshold: 0x0, Data: []uint8(nil)},
+			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{syscall.IPPROTO_TCP}},
+			&expr.Log{Flags: logFlags, Key: 0x2, Snaplen: snaplen, Group: 100},
 		},
 	})
 
@@ -126,10 +128,9 @@ func (n *NFLogAgent) syncRules() error {
 		Exprs: []expr.Any{
 			&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
 			&expr.Cmp{Op: 0x0, Register: 0x1, Data: []byte{syscall.IPPROTO_UDP}},
-			&expr.Log{Level: 0x0, Flags: 0x0, Key: 0x2, Snaplen: 0x0, Group: 100, QThreshold: 0x0, Data: []uint8(nil)},
+			&expr.Log{Flags: logFlags, Key: 0x2, Snaplen: snaplen, Group: 100},
 		},
 	})
-
 	err = nft.Flush()
 	if err != nil {
 		return fmt.Errorf("failed to create kindnet-fastpath table: %v", err)
