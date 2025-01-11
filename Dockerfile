@@ -18,7 +18,7 @@ RUN if [ "$TARGETARCH" = "arm64" ] ; then \
   fi
 
 # STEP 2: Build small image
-FROM registry.k8s.io/build-image/distroless-iptables:v0.6.6@sha256:be1e8d4d451ada7e39ba4e44fbd8f58ba50feb4f4b1906df7b2bbb424efb06f3
+FROM gcr.io/distroless/static-debian12:debug
 COPY --from=builder --chown=root:root /go/bin/kindnetd /bin/kindnetd
 COPY --from=builder --chown=root:root /go/bin/cni-kindnet /opt/cni/bin/cni-kindnet
 CMD ["/bin/kindnetd"]
