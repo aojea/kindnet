@@ -281,11 +281,21 @@ func cmdAdd(args *skel.CmdArgs) (err error) {
 		return fmt.Errorf("no network configuration available: %v", err)
 	}
 
-	err = createPodInterface(networkConfig)
-	if err != nil {
-		return fmt.Errorf("fail to create veth interface: %v", err)
+	// retry three times to make this more resilient since is cheaper
+	// to retry the interface creation here than roundtripping over
+	// the CNI ADD and CNI DEL
+	var interfaceCreationError error
+	for i := 0; i < 3; i++ {
+		interfaceCreationError = createPodInterface(networkConfig)
+		if err != nil {
+			deletePodInterface(defaultInterface, args.Netns)
+		} else {
+			break
+		}
 	}
-
+	if interfaceCreationError != nil {
+		return fmt.Errorf("fail to create veth interface: %v", interfaceCreationError)
+	}
 	if len(networkConfig.PortMaps) > 0 {
 		err = reconcilePortMaps()
 		if err != nil {
