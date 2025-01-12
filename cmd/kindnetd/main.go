@@ -88,7 +88,7 @@ func init() {
 	flag.BoolVar(&networkpolicies, "network-policy", true, "If set, enable Network Policies (default true)")
 	flag.BoolVar(&adminNetworkPolicy, "admin-network-policy", false, "If set, enable Admin Network Policies (default false)")
 	flag.BoolVar(&baselineAdminNetworkPolicy, "baseline-admin-network-policy", false, "If set, enable Baseline Admin Network Policies (default false)")
-	flag.BoolVar(&dnsCaching, "dns-caching", false, "If set, enable Kubernetes DNS caching (default false)")
+	flag.BoolVar(&dnsCaching, "dns-caching", true, "If set, enable Kubernetes DNS caching (default true)")
 	flag.BoolVar(&nat64, "nat64", true, "If set, enable NAT64 using the reserved prefix 64:ff9b::/96 on IPv6 only clusters (default true)")
 	flag.StringVar(&hostnameOverride, "hostname-override", "", "If non-empty, will be used as the name of the Node that kube-network-policies is running on. If unset, the node name is assumed to be the same as the node's hostname.")
 	flag.BoolVar(&masquerading, "masquerading", true, "masquerade with the Node IP the cluster to external traffic (default true)")
@@ -262,9 +262,7 @@ func main() {
 	}
 
 	// create a dnsCacheAgent
-	// TODO: support IPv6
-	dnsCaching = false // EXPERIMENTAL: it does not work fine
-	if dnsCaching && ipFamily == IPv4Family {
+	if dnsCaching {
 		klog.Infof("caching DNS cluster traffic")
 		dnsCacheAgent, err := dnscache.NewDNSCacheAgent(nodeName, nodeInformer)
 		if err != nil {

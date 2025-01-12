@@ -115,8 +115,8 @@ func (p *ConnectionPool) newConnection(address string) (*net.TCPConn, error) {
 		return nil, err
 	}
 
-	conn.SetKeepAlive(true)
-	conn.SetKeepAlivePeriod(30 * time.Second)
+	_ = conn.SetKeepAlive(true)
+	_ = conn.SetKeepAlivePeriod(30 * time.Second)
 
 	return conn, nil
 }
