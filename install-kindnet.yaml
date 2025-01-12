@@ -95,7 +95,7 @@ spec:
       containers:
       - name: kindnet-cni
         image: ghcr.io/aojea/kindnetd:stable
-        args:
+        command:
         - /bin/kindnetd
         - --hostname-override=$(NODE_NAME)
         - --v=2

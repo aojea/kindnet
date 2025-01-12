@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// === RUN   TestConnectionPoolIntegration: connection_pool_test.go:103: 5000 requests with 3 connections in 103.187534ms
 func TestConnectionPoolIntegration(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -42,7 +43,6 @@ func TestConnectionPoolIntegration(t *testing.T) {
 						if err != io.EOF {
 							t.Errorf("failed to read data, %v", err)
 						}
-						t.Logf("msg error %v", err)
 						return
 					}
 					numRequest.Add(1)
