@@ -190,8 +190,8 @@ func createPodInterface(netconf *NetworkConfig) error {
 			Dst:       addressGw.IPNet,
 		}
 
-		// TODO: investigate why this flake and IPv4 not
-		// cni_test.go:119: CNI ADD command failed: fail to create veth interface: could not add route {Ifindex: 43656 Dst: 2001:db8::7775:5443:1309:8685/128 Src: 2001:db8:: Gw: <nil> Flags: [] Table: 0 Realm: 0} on the host to the container interface knetb3773c91 : invalid argument
+		// TODO: investigate how to make this more resilient
+		// CNI ADD command failed: fail to create veth interface: could not add route {Ifindex: 43656 Dst: 2001:db8::7775:5443:1309:8685/128 Src: 2001:db8:: Gw: <nil> Flags: [] Table: 0 Realm: 0} on the host to the container interface knetb3773c91 : invalid argument
 		time.Sleep(10 * time.Millisecond)
 		if err := nhNs.RouteAdd(&routeToGateway); err != nil {
 			return fmt.Errorf("could not add route to default gw on namespace %s : %w", netconf.NetNS, err)
@@ -245,6 +245,9 @@ func createPodInterface(netconf *NetworkConfig) error {
 			Dst:       addressGw.IPNet,
 		}
 
+		// TODO: investigate how to make this more resilient
+		// CNI ADD command failed: fail to create veth interface: could not add route {Ifindex: 43656 Dst: 2001:db8::7775:5443:1309:8685/128 Src: 2001:db8:: Gw: <nil> Flags: [] Table: 0 Realm: 0} on the host to the container interface knetb3773c91 : invalid argument
+		time.Sleep(10 * time.Millisecond)
 		if err := nhNs.RouteAdd(&routeToGateway); err != nil {
 			return fmt.Errorf("could not add route to default gw on namespace %s : %w", netconf.NetNS, err)
 		}
