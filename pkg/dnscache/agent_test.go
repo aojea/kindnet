@@ -25,6 +25,7 @@ func TestNFLogAgent_syncRules(t *testing.T) {
 		podCIDRv4        string
 		podCIDRv6        string
 		expectedNftables string
+		nameservers      []string
 	}{
 		{
 			name: "empty",
@@ -41,15 +42,25 @@ table inet kindnet-dnscache {
 `,
 		},
 		{
-			name:      "dual",
-			podCIDRv4: "10.0.0.0/24",
-			podCIDRv6: "2001:db8::/112",
+			name:        "dual",
+			podCIDRv4:   "10.0.0.0/24",
+			podCIDRv6:   "2001:db8::/112",
+			nameservers: []string{"1.1.1.1", "fd00::1"},
 			expectedNftables: `
 table inet kindnet-dnscache {
+        set set-v4-nameservers {
+                type ipv4_addr
+                elements = { 1.1.1.1 }
+        }
+
+        set set-v6-nameservers {
+                type ipv6_addr
+                elements = { fd00::1 }
+        }
         chain prerouting {
                 type filter hook prerouting priority raw; policy accept;
-                ip saddr 10.0.0.0/24 udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
-                ip6 saddr 2001:db8::/112 udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip saddr 10.0.0.0/24 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip6 saddr 2001:db8::/112 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
         }
         chain output {
                 type filter hook output priority raw; policy accept;
@@ -59,15 +70,25 @@ table inet kindnet-dnscache {
 `,
 		},
 		{
-			name:      "dual odd mask",
-			podCIDRv4: "10.0.0.0/17",
-			podCIDRv6: "2001:db8::/77",
+			name:        "dual odd mask",
+			podCIDRv4:   "10.0.0.0/17",
+			podCIDRv6:   "2001:db8::/77",
+			nameservers: []string{"1.1.1.1", "fd00::1"},
 			expectedNftables: `
 table inet kindnet-dnscache {
+        set set-v4-nameservers {
+                type ipv4_addr
+                elements = { 1.1.1.1 }
+        }
+
+        set set-v6-nameservers {
+                type ipv6_addr
+                elements = { fd00::1 }
+        }
         chain prerouting {
                 type filter hook prerouting priority raw; policy accept;
-                ip saddr 10.0.0.0/17 udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
-                ip6 saddr 2001:db8::/77 udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip saddr 10.0.0.0/17 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip6 saddr 2001:db8::/77 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
         }
         chain output {
                 type filter hook output priority raw; policy accept;
@@ -80,8 +101,9 @@ table inet kindnet-dnscache {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			n := &DNSCacheAgent{
-				podCIDRv4: tt.podCIDRv4,
-				podCIDRv6: tt.podCIDRv6,
+				podCIDRv4:   tt.podCIDRv4,
+				podCIDRv6:   tt.podCIDRv6,
+				nameServers: tt.nameservers,
 			}
 			runtime.LockOSThread()
 			defer runtime.UnlockOSThread()
