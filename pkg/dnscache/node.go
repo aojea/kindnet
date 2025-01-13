@@ -3,21 +3,78 @@
 package dnscache
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
 	utilio "k8s.io/utils/io"
 )
 
-const maxResolvConfLength = 10 * 1 << 20 // 10MB
+const (
+	maxResolvConfLength = 10 * 1 << 20 // 10MB
+)
+
+// returns a status 200 response from the /configz endpoint or nil if fails
+func getKubeletConfigz(ctx context.Context, nodeName string) (*kubeletconfigv1beta1.KubeletConfiguration, error) {
+	// create a Kubernetes client
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return nil, err
+	}
+	config.Timeout = 3 * time.Second
+
+	client, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	req := client.CoreV1().RESTClient().Get().
+		Resource("nodes").Name(nodeName).SubResource("proxy").Suffix("configz")
+
+	// This hack because /configz reports the following structure:
+	// {"kubeletconfig": {the JSON representation of kubeletconfigv1beta1.KubeletConfiguration}}
+	type configzWrapper struct {
+		ComponentConfig kubeletconfigv1beta1.KubeletConfiguration `json:"kubeletconfig"`
+	}
+
+	configz := configzWrapper{}
+	var respBody []byte
+
+	err = wait.PollUntilContextTimeout(ctx, 3*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		result, err := req.DoRaw(ctx)
+		if err != nil {
+			klog.Infof("Could not get kubelet config for node %v: %v", nodeName, err)
+			return false, nil
+		}
+
+		err = json.Unmarshal(result, &configz)
+		if err != nil {
+			klog.Infof("kubelet configz fail to unmarshal config %s: %v", string(respBody), err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &configz.ComponentConfig, nil
+}
+
 // https://github.com/kubernetes/kubernetes/blob/2108e54f5249c6b3b0c9f824314cb5f33c01e3f4/pkg/kubelet/network/dns/dns.go#L176
 // parseResolvConf reads a resolv.conf file from the given reader, and parses
 // it into nameservers, searches and options, possibly returning an error.
-func parseResolvConf() (nameservers []string, searches []string, options []string, err error) {
-	f, err := os.Open("/etc/resolv.conf")
+func parseResolvConf(resolvPath string) (nameservers []string, searches []string, options []string, err error) {
+	f, err := os.Open(resolvPath)
 	if err != nil {
 		klog.ErrorS(err, "Could not open resolv conf file.")
 		return nil, nil, nil, err

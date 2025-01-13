@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	"time"
 
 	"github.com/aojea/kindnet/pkg/network"
@@ -64,10 +65,11 @@ type DNSCacheAgent struct {
 	nodesSynced cache.InformerSynced
 	interval    time.Duration
 
-	podCIDRv4  string
-	podCIDRv6  string
-	nameServer string
-	searches   []string
+	podCIDRv4     string
+	podCIDRv6     string
+	nameServers   []string
+	searches      []string
+	clusterDomain string
 
 	nfq *nfqueue.Nfqueue
 
@@ -108,15 +110,31 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 	// If set, kubelet will configure all containers to use this for DNS resolution instead of the host's DNS servers.
 
 	klog.Info("Configuring upstream DNS resolver")
-	hostDNS, hostSearch, hostOptions, err := parseResolvConf()
+	kubeletConfig, err := getKubeletConfigz(ctx, d.nodeName)
 	if err != nil {
-		err := fmt.Errorf("encountered error while parsing resolv conf file. Error: %w", err)
-		klog.ErrorS(err, "Could not parse resolv conf file.")
+		klog.ErrorS(err, "Could not obtain local Kubelet config")
 		return err
 	}
-	d.nameServer = hostDNS[0]
+	klog.Infof("Obtain DNS config from kubelet: nameservers: %v search: %v options: %v", kubeletConfig.ClusterDNS, kubeletConfig.ClusterDomain, kubeletConfig.ResolverConfig)
+
+	if len(kubeletConfig.ClusterDNS) > 0 {
+		d.nameServers = kubeletConfig.ClusterDNS
+	}
+
+	d.clusterDomain = kubeletConfig.ClusterDomain
+	resolvPath := "/etc/resolv.conf"
+	if kubeletConfig.ResolverConfig != nil {
+		resolvPath = *kubeletConfig.ResolverConfig
+	}
+
+	hostDNS, hostSearch, hostOptions, err := parseResolvConf(resolvPath)
+	if err != nil {
+		err := fmt.Errorf("encountered error while parsing resolv conf file. Error: %w", err)
+		klog.ErrorS(err, "Could not parse resolv conf file")
+		return err
+	}
 	d.searches = hostSearch
-	klog.V(2).Infof("Parsed resolv.conf: nameservers: %v search: %v options: %v", hostDNS, hostSearch, hostOptions)
+	klog.Infof("Resolv.conf from %s: nameservers: %v search: %v options: %v", resolvPath, hostDNS, hostSearch, hostOptions)
 
 	// https://netfilter.org/projects/libnetfilter_queue/doxygen/html/group__Queue.html
 	// the kernel will not normalize offload packets,
@@ -247,6 +265,29 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 
 	//  ip saddr pod-range udp dport 53 queue flags bypass to 103
 	if len(d.podCIDRv4) > 0 {
+		v4Set := &nftables.Set{
+			Table:   table,
+			Name:    "set-v4-nameservers",
+			KeyType: nftables.TypeIPAddr,
+		}
+
+		var elementsV4 []nftables.SetElement
+		for _, ip := range d.nameServers {
+			addr, err := netip.ParseAddr(ip)
+			if err != nil {
+				continue
+			}
+			if addr.Is6() {
+				continue
+			}
+			elementsV4 = append(elementsV4, nftables.SetElement{
+				Key: addr.AsSlice(),
+			})
+		}
+		if err := nft.AddSet(v4Set, elementsV4); err != nil {
+			return fmt.Errorf("failed to add Set %s : %v", v4Set.Name, err)
+		}
+
 		_, srccidrmatch, err := net.ParseCIDR(d.podCIDRv4)
 		if err != nil {
 			klog.Infof("SHOULD NOT HAPPEN bad cidr%s", d.podCIDRv4)
@@ -260,6 +301,8 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 12, Len: 4},
 					&expr.Bitwise{SourceRegister: 0x1, DestRegister: 0x1, Len: 4, Mask: srccidrmatch.Mask, Xor: binaryutil.NativeEndian.PutUint32(0)},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: srccidrmatch.IP.To4()},
+					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 16, Len: 4},
+					&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: v4Set.Name},
 					&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.IPPROTO_UDP}},
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
@@ -272,6 +315,33 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 	}
 
 	if len(d.podCIDRv6) > 0 {
+		v6Set := &nftables.Set{
+			Table:   table,
+			Name:    "set-v6-nameservers",
+			KeyType: nftables.TypeIP6Addr,
+		}
+
+		var elementsV6 []nftables.SetElement
+		for _, ip := range d.nameServers {
+			addr, err := netip.ParseAddr(ip)
+			if err != nil {
+				continue
+			}
+			if addr.Is4() {
+				continue
+			}
+			elementsV6 = append(elementsV6, nftables.SetElement{
+				Key: addr.AsSlice(),
+			})
+		}
+		if err := nft.AddSet(v6Set, elementsV6); err != nil {
+			return fmt.Errorf("failed to add Set %s : %v", v6Set.Name, err)
+		}
+
+		if err := nft.AddSet(v6Set, elementsV6); err != nil {
+			return fmt.Errorf("failed to add Set %s : %v", v6Set.Name, err)
+		}
+
 		_, srccidrmatch, err := net.ParseCIDR(d.podCIDRv6)
 		if err != nil {
 			klog.Infof("SHOULD NOT HAPPEN bad cidr%s", d.podCIDRv6)
@@ -286,7 +356,8 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 8, Len: 16},
 					&expr.Bitwise{SourceRegister: 0x1, DestRegister: 0x1, Len: 16, Mask: srccidrmatch.Mask, Xor: make([]byte, 16)},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: srccidrmatch.IP.To16()},
-
+					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseNetworkHeader, Offset: 24, Len: 16},
+					&expr.Lookup{SourceRegister: 0x1, DestRegister: 0x0, SetName: v6Set.Name},
 					&expr.Meta{Key: expr.MetaKeyL4PROTO, SourceRegister: false, Register: 0x1},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: []byte{unix.IPPROTO_UDP}},
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
