@@ -431,7 +431,7 @@ func (d *DNSCacheAgent) handleDNSPacket(ctx context.Context, packet network.Pack
 	} else {
 		// no cache entry found so we forward the request via tcp
 		start := time.Now()
-		pool := d.tcpPool.Get(packet.DstIP.String() + ":53")
+		pool := d.tcpPool.Get(net.JoinHostPort(packet.DstIP.String(), "53"))
 		conn, err := pool.Get()
 		if err != nil {
 			klog.Error(err, "fail to get TCP connection from pool")

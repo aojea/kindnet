@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"syscall"
 
 	"github.com/aojea/kindnet/pkg/network"
@@ -236,7 +237,7 @@ func dnsResponseRoundtrip(packet network.Packet, data []byte) error {
 			})
 		},
 	}
-	conn, err := freebindDialer.Dial("udp", fmt.Sprintf("%s:%d", packet.SrcIP.String(), packet.SrcPort))
+	conn, err := freebindDialer.Dial("udp", net.JoinHostPort(packet.SrcIP.String(), strconv.Itoa(packet.SrcPort)))
 	if err != nil {
 		return fmt.Errorf("can not dial to %s:%d : %w", packet.SrcIP.String(), packet.SrcPort, err)
 	}
