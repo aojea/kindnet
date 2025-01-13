@@ -47,8 +47,7 @@ type IPMasqAgent struct {
 
 // SyncRulesForever syncs ip masquerade rules forever
 // these rules only needs to be installed once, but we run it periodically to check that are
-// not deleted by an external program. It fails if can't sync the rules during 3 iterations
-// TODO: aggregate errors
+// not deleted by an external program.
 func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Duration) error {
 	if !cache.WaitForNamedCacheSync("kindnet-ipmasq", ctx.Done(), ma.nodesSynced) {
 		return fmt.Errorf("error syncing cache")
@@ -64,12 +63,10 @@ func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Durat
 		if err := ma.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
-				return fmt.Errorf("can't synchronize rules after 3 attempts: %v", err)
+				klog.Infof("can't synchronize rules after 3 attempts, retrying: %v", err)
+				errs = 0
 			}
-		} else {
-			errs = 0
 		}
-
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

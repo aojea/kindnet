@@ -167,10 +167,9 @@ func (n *NAT64Agent) Run(ctx context.Context) error {
 		if err := n.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
-				return fmt.Errorf("can't synchronize rules after 3 attempts: %v", err)
+				klog.Infof("can't synchronize rules after 3 attempts: %v", err)
+				errs = 0
 			}
-		} else {
-			errs = 0
 		}
 
 		select {

@@ -205,10 +205,9 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		if err := d.SyncRules(ctx); err != nil {
 			errs++
 			if errs > 3 {
-				return fmt.Errorf("can't synchronize rules after 3 attempts: %v", err)
+				klog.Infof("can't synchronize rules after 3 attempts: %v", err)
+				errs = 0
 			}
-		} else {
-			errs = 0
 		}
 		// garbage collect ip cache entries
 		d.cache.gc()
