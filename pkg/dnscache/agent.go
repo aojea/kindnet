@@ -115,7 +115,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		klog.ErrorS(err, "Could not obtain local Kubelet config")
 		return err
 	}
-	klog.Infof("Obtain DNS config from kubelet: nameservers: %v search: %v options: %v", kubeletConfig.ClusterDNS, kubeletConfig.ClusterDomain, kubeletConfig.ResolverConfig)
+	klog.Infof("Obtained DNS config from kubelet: nameservers: %v search: %v options: %v", kubeletConfig.ClusterDNS, kubeletConfig.ClusterDomain, kubeletConfig.ResolverConfig)
 
 	if len(kubeletConfig.ClusterDNS) > 0 {
 		d.nameServers = kubeletConfig.ClusterDNS
@@ -530,14 +530,14 @@ func (d *DNSCacheAgent) handleDNSPacket(ctx context.Context, packet network.Pack
 	return false
 }
 
-// verifctString coverts nfqueue int vericts to strings for metrics/logging
-// it does not cover all of them because we should only use a subset.
+// verdictString converts nfqueue int verdicts to strings for metrics/logging
+// it does not cover all of them because we only use a subset.
 func verdictString(verdict int) string {
 	switch verdict {
 	case nfqueue.NfDrop:
-		return "drop"
+		return "cached"
 	case nfqueue.NfAccept:
-		return "accept"
+		return "forwarded"
 	default:
 		return "unknown"
 	}
