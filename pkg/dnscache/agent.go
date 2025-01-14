@@ -169,7 +169,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		// by default accept packets to no interrupt traffic
 		verdict := nfqueue.NfAccept
 		startTime := time.Now()
-		logger.V(2).Info("Processing sync for packet", "id", *a.PacketID)
+		logger.V(4).Info("Processing sync for packet", "id", *a.PacketID)
 
 		packet, err := network.ParsePacket(*a.Payload)
 		if err != nil {
@@ -178,6 +178,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 			return 0
 		}
 		packet.ID = *a.PacketID
+		logger.V(4).Info("Processing packet", "packet", packet)
 
 		defer func() {
 			processingTime := float64(time.Since(startTime).Microseconds())
@@ -185,7 +186,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 			packetProcessingSum.Observe(processingTime)
 			verdictStr := verdictString(verdict)
 			packetCounterVec.WithLabelValues(string(packet.Family), verdictStr).Inc()
-			logger.V(2).Info("Finished syncing packet", "id", *a.PacketID, "duration", time.Since(startTime), "verdict", verdictStr)
+			logger.V(4).Info("Finished syncing packet", "id", *a.PacketID, "duration", time.Since(startTime), "verdict", verdictStr)
 		}()
 
 		if d.handleDNSPacket(ctx, packet) {
