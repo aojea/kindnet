@@ -49,7 +49,7 @@ func getKubeletConfigz(ctx context.Context, nodeName string) (*kubeletconfigv1be
 	configz := configzWrapper{}
 	var respBody []byte
 
-	err = wait.PollUntilContextTimeout(ctx, 3*time.Second, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(ctx, 5*time.Second, 300*time.Second, true, func(ctx context.Context) (bool, error) {
 		result, err := req.DoRaw(ctx)
 		if err != nil {
 			klog.Infof("Could not get kubelet config for node %v: %v", nodeName, err)
