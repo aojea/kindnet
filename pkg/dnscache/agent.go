@@ -308,7 +308,6 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: binaryutil.BigEndian.PutUint16(53)},
 					&expr.Queue{Num: queueID, Flag: expr.QueueFlagBypass},
-					&expr.Counter{},
 				},
 			})
 		}
@@ -363,7 +362,6 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 					&expr.Payload{DestRegister: 0x1, Base: expr.PayloadBaseTransportHeader, Offset: 2, Len: 2},
 					&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: binaryutil.BigEndian.PutUint16(53)},
 					&expr.Queue{Num: queueID, Flag: expr.QueueFlagBypass},
-					&expr.Counter{},
 				},
 			})
 		}
