@@ -5,6 +5,7 @@ package masq
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/aojea/kindnet/pkg/network"
@@ -13,72 +14,152 @@ import (
 	"github.com/google/nftables/expr"
 	"golang.org/x/sys/unix"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformers "k8s.io/client-go/informers/core/v1"
-	v1 "k8s.io/client-go/listers/core/v1"
+	nodelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 )
 
+// TODO: move this logic to a controller to process the nodes in a queue
+// and to implement proper deduplication to avoid overlapping ranges.
 const tableName = "kindnet-ipmasq"
 
 // NewIPMasqAgent returns a new IPMasqAgent that avoids masquerading the intra-cluster traffic
 // but allows to masquerade the cluster to external traffic.
 func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs string) (*IPMasqAgent, error) {
-	v4, v6 := network.SplitCIDRs(noMasqueradeCIDRs)
-	return &IPMasqAgent{
+	v4, v6 := network.TopLevelPrefixes(network.CIDRsToPrefix(noMasqueradeCIDRs))
+
+	c := &IPMasqAgent{
 		nodeLister:  nodeInformer.Lister(),
 		nodesSynced: nodeInformer.Informer().HasSynced,
+		workqueue:   workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 		noMasqV4:    v4,
 		noMasqV6:    v6,
-	}, nil
+	}
+
+	_, err := nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: c.enqueueNode,
+		UpdateFunc: func(old, new interface{}) {
+			c.enqueueNode(new)
+		},
+		DeleteFunc: func(obj interface{}) {
+			node, ok := obj.(*v1.Node)
+			if !ok {
+				tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+				if !ok {
+					return
+				}
+				node, ok = tombstone.Obj.(*v1.Node)
+				if !ok {
+					return
+				}
+			}
+			if len(node.Spec.PodCIDRs) == 0 {
+				klog.Infof("Node %s has no CIDR, ignoring\n", node.Name)
+				return
+			}
+			// we do a full resync so no need to differentiate between nodes
+			c.workqueue.Add("sync-token")
+		},
+	})
+
+	if err != nil {
+		klog.Infof("unexpected error adding event handler to informer: %v", err)
+		return nil, err
+	}
+	return c, nil
+}
+
+func (ma *IPMasqAgent) enqueueNode(obj interface{}) {
+	node, ok := obj.(*v1.Node)
+	if !ok {
+		return
+	}
+
+	if len(node.Spec.PodCIDRs) == 0 {
+		klog.Infof("Node %s has no CIDR, ignoring\n", node.Name)
+		return
+	}
+
+	// we do a full resync so no need to differentiate between nodes
+	ma.workqueue.Add("sync-token")
 }
 
 // IPMasqAgent is based on https://github.com/kubernetes-incubator/ip-masq-agent
 // but collapsed into kindnetd and made ipv6 aware in an opinionated and simplified
 // fashion using "github.com/coreos/go-iptables"
 type IPMasqAgent struct {
-	nodeLister  v1.NodeLister
+	nodeLister  nodelisters.NodeLister
 	nodesSynced cache.InformerSynced
-	noMasqV4    []string
-	noMasqV6    []string
+	workqueue   workqueue.TypedRateLimitingInterface[string]
+
+	noMasqV4 []netip.Prefix
+	noMasqV6 []netip.Prefix
 }
 
-// SyncRulesForever syncs ip masquerade rules forever
-// these rules only needs to be installed once, but we run it periodically to check that are
-// not deleted by an external program.
-func (ma *IPMasqAgent) SyncRulesForever(ctx context.Context, interval time.Duration) error {
+func (ma *IPMasqAgent) Run(ctx context.Context) error {
+	defer utilruntime.HandleCrash()
+	defer ma.workqueue.ShutDown()
+	logger := klog.FromContext(ctx)
+
+	logger.Info("Starting masquerade controller")
+	logger.Info("Waiting for informer caches to sync")
 	if !cache.WaitForNamedCacheSync("kindnet-ipmasq", ctx.Done(), ma.nodesSynced) {
 		return fmt.Errorf("error syncing cache")
 	}
-	errs := 0
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 
-		if err := ma.SyncRules(ctx); err != nil {
-			errs++
-			if errs > 3 {
-				klog.Infof("can't synchronize rules after 3 attempts, retrying: %v", err)
-				errs = 0
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			continue
-		}
+	logger.Info("Starting worker")
+	go wait.UntilWithContext(ctx, ma.runWorker, time.Second)
+
+	logger.Info("Started worker")
+	<-ctx.Done()
+	logger.Info("Shutting down worker")
+	return nil
+}
+
+func (ma *IPMasqAgent) runWorker(ctx context.Context) {
+	for ma.processNextWorkItem(ctx) {
 	}
+}
+
+func (ma *IPMasqAgent) processNextWorkItem(ctx context.Context) bool {
+	key, shutdown := ma.workqueue.Get()
+	if shutdown {
+		return false
+	}
+	defer ma.workqueue.Done(key)
+
+	err := ma.SyncRules(ctx)
+	ma.handleErr(err, key)
+	return true
+}
+
+func (ma *IPMasqAgent) handleErr(err error, key string) {
+	if err == nil {
+		ma.workqueue.Forget(key)
+		return
+	}
+
+	if ma.workqueue.NumRequeues(key) < 15 {
+		klog.Infof("Error syncing node %s, retrying: %v", key, err)
+		ma.workqueue.AddRateLimited(key)
+		return
+	}
+
+	ma.workqueue.Forget(key)
+	utilruntime.HandleError(err)
+	klog.Infof("Dropping node %q out of the queue: %v", key, err)
 }
 
 // SyncRules syncs ip masquerade rules
 func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
-	klog.V(2).Info("Syncing kindnet-ipmasq nftables rules")
+	klog.Info("Syncing kindnet-ipmasq nftables rules")
 	nft, err := nftables.New()
 	if err != nil {
 		return fmt.Errorf("kindnet ipamsq failure, can not start nftables: %v", err)
@@ -93,16 +174,9 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 	nft.DelTable(table)
 	nft.AddTable(table)
 
-	v4CIDRs := sets.New[string]()
-	v6CIDRs := sets.New[string]()
-	if len(ma.noMasqV4) > 0 {
-		klog.V(7).Infof("Adding no masquerade IPv4 cidrs from user %v", ma.noMasqV4)
-		v4CIDRs = v4CIDRs.Insert(ma.noMasqV4...)
-	}
-	if len(ma.noMasqV6) > 0 {
-		klog.V(7).Infof("Adding no masquerade IPv6 cidrs from user %v", ma.noMasqV4)
-		v6CIDRs = v6CIDRs.Insert(ma.noMasqV6...)
-	}
+	prefixes := sets.New[netip.Prefix]()
+	prefixes.Insert(ma.noMasqV4...)
+	prefixes.Insert(ma.noMasqV6...)
 
 	nodes, err := ma.nodeLister.List(labels.Everything())
 	if err != nil {
@@ -112,17 +186,23 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 	// don't masquerade the traffic directed to the Pods
 	for _, node := range nodes {
 		podCIDRsv4, podCIDRsv6 := network.SplitCIDRslice(node.Spec.PodCIDRs)
-		klog.V(7).Infof("Got %v and %v from node %s", podCIDRsv4, podCIDRsv6, node.Name)
+		klog.V(4).Infof("Got %v and %v from node %s", podCIDRsv4, podCIDRsv6, node.Name)
 		if len(podCIDRsv4) > 0 {
-			v4CIDRs.Insert(podCIDRsv4...)
+			prefix, err := netip.ParsePrefix(podCIDRsv4[0])
+			if err == nil {
+				prefixes.Insert(prefix)
+			}
 		}
 		if len(podCIDRsv6) > 0 {
-			v6CIDRs.Insert(podCIDRsv6...)
+			prefix, err := netip.ParsePrefix(podCIDRsv6[0])
+			if err == nil {
+				prefixes.Insert(prefix)
+			}
 		}
 	}
-
+	v4CIDRs, v6CIDRs := network.TopLevelPrefixes(prefixes.UnsortedList())
 	var elementsV4, elementsV6 []nftables.SetElement
-	for _, cidr := range v4CIDRs.UnsortedList() {
+	for _, cidr := range v4CIDRs {
 		klog.V(7).Infof("Adding %s to set noMasqV4", cidr)
 		first, last, err := network.FirstAndNextSubnetAddr(cidr)
 		if err != nil {
@@ -135,7 +215,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 		)
 	}
 
-	for _, cidr := range v6CIDRs.UnsortedList() {
+	for _, cidr := range v6CIDRs {
 		klog.V(7).Infof("Adding %s to set noMasqV6", cidr)
 		first, last, err := network.FirstAndNextSubnetAddr(cidr)
 		if err != nil {

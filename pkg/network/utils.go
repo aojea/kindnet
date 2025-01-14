@@ -13,12 +13,7 @@ import (
 //
 // Note: nftables needs half-open intervals [firstIP, lastIP) for prefixes
 // e.g. 10.0.0.0/24 becomes [10.0.0.0, 10.0.1.0), 10.1.1.1/32 becomes [10.1.1.1, 10.1.1.2) etc
-func FirstAndNextSubnetAddr(networkCIDR string) (first, next netip.Addr, err error) {
-	subnet, err := netip.ParsePrefix(networkCIDR)
-	if err != nil {
-		return netip.Addr{}, netip.Addr{}, err
-	}
-
+func FirstAndNextSubnetAddr(subnet netip.Prefix) (first, next netip.Addr, err error) {
 	first = subnet.Masked().Addr()
 
 	broadcast, err := broadcastAddress(subnet)
