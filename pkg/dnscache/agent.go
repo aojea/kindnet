@@ -115,7 +115,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		klog.ErrorS(err, "Could not obtain local Kubelet config")
 		return err
 	}
-	klog.Infof("Obtained DNS config from kubelet: nameservers: %v search: %v options: %v", kubeletConfig.ClusterDNS, kubeletConfig.ClusterDomain, kubeletConfig.ResolverConfig)
+	klog.InfoS("Obtained DNS config from kubelet", "nameservers", kubeletConfig.ClusterDNS, "search", kubeletConfig.ClusterDomain, "resolver", kubeletConfig.ResolverConfig)
 
 	if len(kubeletConfig.ClusterDNS) > 0 {
 		d.nameServers = kubeletConfig.ClusterDNS
