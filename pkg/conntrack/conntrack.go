@@ -52,7 +52,6 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 			stats, err := statsConn.Stats()
 			if err == nil {
 				for _, stat := range stats {
-					klog.V(4).Infof("Conntrack stats: %s", stat.String())
 					aggrStats.Found += float64(stat.Found)
 					aggrStats.Invalid += float64(stat.Invalid)
 					aggrStats.Ignore += float64(stat.Ignore)
@@ -62,7 +61,7 @@ func StartConntrackMetricsAgent(ctx context.Context) error {
 					aggrStats.Error += float64(stat.Error)
 					aggrStats.SearchRestart += float64(stat.SearchRestart)
 				}
-
+				klog.V(4).Infof("Conntrack aggregated stats: %#v", aggrStats)
 				metricConntrackFoundTotal.Set(aggrStats.Found)
 				metricConntrackInvalidTotal.Set(aggrStats.Invalid)
 				metricConntrackIgnoreTotal.Set(aggrStats.Ignore)
