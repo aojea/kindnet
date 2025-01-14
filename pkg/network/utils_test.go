@@ -1,6 +1,7 @@
 package network
 
 import (
+	"net/netip"
 	"testing"
 )
 
@@ -46,7 +47,7 @@ func TestFirstAndNextSubnetAddr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotFirst, gotNext, err := FirstAndNextSubnetAddr(tt.networkCIDR)
+			gotFirst, gotNext, err := FirstAndNextSubnetAddr(netip.MustParsePrefix(tt.networkCIDR))
 			if err != nil {
 				t.Errorf("FirstAndNextSubnetAddr() error = %v", err)
 				return

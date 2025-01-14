@@ -4,6 +4,7 @@ package masq
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -74,6 +75,41 @@ table inet kindnet-ipmasq {
               flags interval
               auto-merge
               elements = { 10.1.1.0/24 }
+      }
+
+      set noMasqV6 {
+              type ipv6_addr
+              flags interval
+              auto-merge
+      }
+
+      chain postrouting {
+              type nat hook postrouting priority srcnat - 10; policy accept;
+              ct state established,related accept
+              fib saddr type local accept
+              ip daddr @noMasqV4 accept
+              ip6 daddr @noMasqV6 accept
+              masquerade counter packets 0 bytes 0
+      }
+}
+`,
+		},
+		{
+			name: "ipv4 node overlapping",
+			nodes: []*v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "node1"},
+					Spec:       v1.NodeSpec{PodCIDRs: []string{"10.1.1.0/24"}},
+				},
+			},
+			noMasqV4: []string{"10.0.0.0/8", "10.0.1.0/23"},
+			expectedNftables: `
+table inet kindnet-ipmasq {
+      set noMasqV4 {
+              type ipv4_addr
+              flags interval
+              auto-merge
+              elements = { 10.0.0.0/8 }
       }
 
       set noMasqV6 {
@@ -179,10 +215,18 @@ table inet kindnet-ipmasq {
 					t.Fatal(err)
 				}
 			}
+			v4s := []netip.Prefix{}
+			for _, cidr := range tt.noMasqV4 {
+				v4s = append(v4s, netip.MustParsePrefix(cidr))
+			}
+			v6s := []netip.Prefix{}
+			for _, cidr := range tt.noMasqV6 {
+				v6s = append(v4s, netip.MustParsePrefix(cidr))
+			}
 			ma := &IPMasqAgent{
 				nodeLister: nodeInformer.Lister(),
-				noMasqV4:   tt.noMasqV4,
-				noMasqV6:   tt.noMasqV6,
+				noMasqV4:   v4s,
+				noMasqV6:   v6s,
 			}
 			runtime.LockOSThread()
 			defer runtime.UnlockOSThread()

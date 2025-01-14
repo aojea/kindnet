@@ -235,7 +235,7 @@ func main() {
 
 		go func() {
 			defer masqAgent.CleanRules()
-			if err := masqAgent.SyncRulesForever(ctx, time.Second*60); err != nil {
+			if err := masqAgent.Run(ctx); err != nil {
 				klog.Infof("error running masquerading agent: %v", err)
 			}
 		}()
