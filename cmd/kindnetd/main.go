@@ -196,7 +196,7 @@ func main() {
 
 	// obtain the host and pod ip addresses
 	hostIP, podIP := os.Getenv("HOST_IP"), os.Getenv("POD_IP")
-	klog.Infof("hostIP = %s\npodIP = %s\n", hostIP, podIP)
+	klog.Infof("hostIP = %s podIP = %s\n", hostIP, podIP)
 	if hostIP != podIP {
 		panic(fmt.Sprintf(
 			"hostIP(= %q) != podIP(= %q) but must be running with host network: ",
