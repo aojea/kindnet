@@ -94,8 +94,6 @@ metadata:
   labels:
     app: prometheus-server
 spec:
-  nodeSelector:
-    node-role.kubernetes.io/control-plane: ""
   tolerations:
   - key: CriticalAddonsOnly
     operator: Exists
