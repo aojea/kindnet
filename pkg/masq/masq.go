@@ -65,7 +65,7 @@ func NewIPMasqAgent(nodeInformer coreinformers.NodeInformer, noMasqueradeCIDRs s
 				return
 			}
 			// we do a full resync so no need to differentiate between nodes
-			c.workqueue.Add("sync-token")
+			c.workqueue.AddAfter("sync-token", 5*time.Second)
 		},
 	})
 
@@ -88,7 +88,7 @@ func (ma *IPMasqAgent) enqueueNode(obj interface{}) {
 	}
 
 	// we do a full resync so no need to differentiate between nodes
-	ma.workqueue.Add("sync-token")
+	ma.workqueue.AddAfter("sync-token", 5*time.Second)
 }
 
 // IPMasqAgent is based on https://github.com/kubernetes-incubator/ip-masq-agent
