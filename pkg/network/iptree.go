@@ -359,6 +359,7 @@ func (t *Tree[T]) DeletePrefix(prefix netip.Prefix) bool {
 	// this is a leaf so we can delete this node.
 	// - parent -> child(to be deleted)
 	if parent != nil && nodeChildren == 0 {
+		// nolint:gocritic
 		if parent.child[0] != nil && parent.child[0] == n {
 			parent.child[0] = nil
 		} else if parent.child[1] != nil && parent.child[1] == n {
