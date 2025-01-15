@@ -129,12 +129,11 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 
 	hostDNS, hostSearch, hostOptions, err := parseResolvConf(resolvPath)
 	if err != nil {
-		err := fmt.Errorf("encountered error while parsing resolv conf file. Error: %w", err)
-		klog.ErrorS(err, "Could not parse resolv conf file")
-		return err
+		klog.ErrorS(err, "Could not parse resolv conf file on %s", resolvPath)
+	} else {
+		d.searches = hostSearch
+		klog.Infof("Resolv.conf from %s: nameservers: %v search: %v options: %v", resolvPath, hostDNS, hostSearch, hostOptions)
 	}
-	d.searches = hostSearch
-	klog.Infof("Resolv.conf from %s: nameservers: %v search: %v options: %v", resolvPath, hostDNS, hostSearch, hostOptions)
 
 	// https://netfilter.org/projects/libnetfilter_queue/doxygen/html/group__Queue.html
 	// the kernel will not normalize offload packets,
