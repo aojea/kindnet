@@ -59,8 +59,8 @@ table inet kindnet-dnscache {
         }
         chain prerouting {
                 type filter hook prerouting priority raw; policy accept;
-                ip saddr 10.0.0.0/24 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103
-                ip6 saddr 2001:db8::/112 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103
+                ip saddr 10.0.0.0/24 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip6 saddr 2001:db8::/112 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
         }
         chain output {
                 type filter hook output priority raw; policy accept;
@@ -87,8 +87,8 @@ table inet kindnet-dnscache {
         }
         chain prerouting {
                 type filter hook prerouting priority raw; policy accept;
-                ip saddr 10.0.0.0/17 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103
-                ip6 saddr 2001:db8::/77 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103
+                ip saddr 10.0.0.0/17 ip daddr @set-v4-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
+                ip6 saddr 2001:db8::/77 ip6 daddr @set-v6-nameservers udp dport 53 queue flags bypass to 103 counter packets 0 bytes 0
         }
         chain output {
                 type filter hook output priority raw; policy accept;
