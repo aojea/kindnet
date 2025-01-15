@@ -33,23 +33,9 @@ var (
 	errLameReferral              = errors.New("lame referral")
 	errCannotUnmarshalDNSMessage = errors.New("cannot unmarshal DNS message")
 	errCannotMarshalDNSMessage   = errors.New("cannot marshal DNS message")
-	errServerMisbehaving         = errors.New("server misbehaving")
 	errInvalidDNSResponse        = errors.New("invalid DNS response")
 	errNoAnswerFromDNSServer     = errors.New("no answer from DNS server")
-
-	// errServerTemporarilyMisbehaving is like errServerMisbehaving, except
-	// that when it gets translated to a DNSError, the IsTemporary field
-	// gets set to true.
-	errServerTemporarilyMisbehaving = &temporaryError{"server misbehaving"}
 )
-
-// temporaryError is an error type that implements the [Error] interface.
-// It returns true from the Temporary method.
-type temporaryError struct{ s string }
-
-func (e *temporaryError) Error() string   { return e.s }
-func (e *temporaryError) Temporary() bool { return true }
-func (e *temporaryError) Timeout() bool   { return false }
 
 func equalASCIIName(x, y dnsmessage.Name) bool {
 	if x.Length != y.Length {
@@ -170,9 +156,9 @@ func checkHeader(p *dnsmessage.Parser, h dnsmessage.Header) error {
 		// the server is behaving incorrectly or
 		// having temporary trouble.
 		if rcode == dnsmessage.RCodeServerFailure {
-			return errServerTemporarilyMisbehaving
+			return fmt.Errorf("server temporary mishbehaving, header rcode %d extended rcode %v rcode ServerFailure", h.RCode, hasAdd)
 		}
-		return errServerMisbehaving
+		return fmt.Errorf("server mishbehaving, header rcode %d extended rcode %v rcode value %d", h.RCode, hasAdd, rcode)
 	}
 
 	return nil
