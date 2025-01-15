@@ -102,6 +102,14 @@ func createPodInterface(netconf *NetworkConfig) error {
 		return fmt.Errorf("could not get interface %s on namespace %s : %w", iifName, netconf.NetNS, err)
 	}
 
+	// set MTU if defined
+	if netconf.MTU > 0 {
+		err = nhNs.LinkSetMTU(nsLink, netconf.MTU)
+		if err != nil {
+			return fmt.Errorf("could not set interface %s mtu : %w", iifName, err)
+		}
+	}
+
 	if err = nhNs.LinkSetUp(nsLink); err != nil {
 		return fmt.Errorf("failed to set interface %s up: %v", iifName, err)
 	}
