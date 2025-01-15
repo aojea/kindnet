@@ -2,6 +2,8 @@ name: nightly
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * *'
 
 env:
   REGISTRY: ghcr.io
@@ -43,5 +45,5 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
-        tags: ${{ steps.meta.outputs.tags }}
+        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:next
         labels: ${{ steps.meta.outputs.labels }}
