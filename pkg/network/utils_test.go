@@ -20,6 +20,12 @@ func TestFirstAndNextSubnetAddr(t *testing.T) {
 			wantNext:    "10.0.1.0",
 		},
 		{
+			name:        "ipv4 large",
+			networkCIDR: "10.0.0.0/8",
+			wantFirst:   "10.0.0.0",
+			wantNext:    "11.0.0.0",
+		},
+		{
 			name:        "ipv6",
 			networkCIDR: "fd00:1:2:3::/64",
 			wantFirst:   "fd00:1:2:3::",
