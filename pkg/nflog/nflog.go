@@ -138,7 +138,7 @@ func (n *NFLogAgent) syncRules() error {
 	return nil
 }
 
-func (n *NFLogAgent) CleanRules() {
+func CleanRules() {
 	nft, err := nftables.New()
 	if err != nil {
 		klog.Infof("fastpath cleanup failure, can not start nftables:%v", err)
