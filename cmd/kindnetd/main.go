@@ -276,7 +276,7 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping dnsCacheAgent, cleaning old rules")
-		defer dnscache.CleanRules()
+		dnscache.CleanRules()
 	}
 
 	if fastpathThreshold > 0 {
