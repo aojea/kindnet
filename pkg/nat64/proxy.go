@@ -306,7 +306,7 @@ func (n *NAT64Agent) SyncRules(ctx context.Context) error {
 	return nil
 }
 
-func (n *NAT64Agent) CleanRules() {
+func CleanRules() {
 	nft, err := nftables.New()
 	if err != nil {
 		klog.Infof("nat64 cleanup failure, can not start nftables:%v", err)
