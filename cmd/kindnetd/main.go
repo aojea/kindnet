@@ -302,13 +302,13 @@ func main() {
 			klog.Fatalf("error creating nflog agent: %v", err)
 		}
 		go func() {
-			defer nflogAgent.CleanRules()
 			if err := nflogAgent.Run(ctx); err != nil {
 				klog.Infof("error running nflog: %v", err)
 			}
 		}()
 	} else {
-		klog.Info("Skipping nflog agent")
+		klog.Info("Skipping nflog agent, cleaning old rules")
+		nflogAgent.CleanRules()
 	}
 
 	// network policies
