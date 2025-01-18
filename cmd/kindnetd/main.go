@@ -252,13 +252,13 @@ func main() {
 		}
 
 		go func() {
-			defer nat64Agent.CleanRules()
 			if err := nat64Agent.Run(ctx); err != nil {
 				klog.Infof("error running nat64 agent: %v", err)
 			}
 		}()
 	} else {
-		klog.Info("Skipping nat64 agent")
+		klog.Info("Skipping nat64 agent, cleaning old rules")
+		kindnetnat64.CleanRules()
 	}
 
 	// create a dnsCacheAgent
