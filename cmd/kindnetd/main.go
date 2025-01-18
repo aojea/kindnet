@@ -234,13 +234,13 @@ func main() {
 		}
 
 		go func() {
-			defer masqAgent.CleanRules()
 			if err := masqAgent.Run(ctx); err != nil {
 				klog.Infof("error running masquerading agent: %v", err)
 			}
 		}()
 	} else {
-		klog.Info("Skipping ipMasqAgent")
+		klog.Info("Skipping ipMasqAgent, cleaning up old rules")
+		masq.CleanRules()
 	}
 
 	// create an nat64 agent if nat64 is enabled and is an IPv6 only cluster
@@ -286,13 +286,13 @@ func main() {
 			klog.Fatalf("error creating fastpath agent: %v", err)
 		}
 		go func() {
-			defer fastpathAgent.CleanRules()
 			if err := fastpathAgent.Run(ctx); err != nil {
 				klog.Infof("error running fastpathAgent: %v", err)
 			}
 		}()
 	} else {
-		klog.Info("Skipping fastpathAgent")
+		klog.Info("Skipping fastpathAgent, cleaning old rules")
+		fastpath.CleanRules()
 	}
 
 	if klog.V(klog.Level(nflogLevel)).Enabled() {
