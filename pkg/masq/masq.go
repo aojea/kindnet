@@ -325,7 +325,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 	return nil
 }
 
-func (ma *IPMasqAgent) CleanRules() {
+func CleanRules() {
 	nft, err := nftables.New()
 	if err != nil {
 		klog.Infof("ipmasq cleanup failure, can not start nftables:%v", err)
