@@ -135,7 +135,7 @@ table inet kindnet-dnscache {
 			if !compareMultilineStringsIgnoreIndentation(got, tt.expectedNftables) {
 				t.Errorf("Got:\n%s\nExpected:\n%s\nDiff:\n%s", got, tt.expectedNftables, cmp.Diff(got, tt.expectedNftables))
 			}
-			n.CleanRules()
+			CleanRules()
 			cmd = exec.Command("nft", "list", "table", "inet", tableName)
 			out, err = cmd.CombinedOutput()
 			if err == nil {

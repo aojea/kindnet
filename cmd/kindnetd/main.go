@@ -270,13 +270,13 @@ func main() {
 		}
 
 		go func() {
-			defer dnsCacheAgent.CleanRules()
 			if err := dnsCacheAgent.Run(ctx); err != nil {
 				klog.Infof("error running dnsCacheAgent agent: %v", err)
 			}
 		}()
 	} else {
-		klog.Info("Skipping dnsCacheAgent")
+		klog.Info("Skipping dnsCacheAgent, cleaning old rules")
+		defer dnscache.CleanRules()
 	}
 
 	if fastpathThreshold > 0 {
