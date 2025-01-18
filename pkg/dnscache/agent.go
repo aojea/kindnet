@@ -398,7 +398,7 @@ func (d *DNSCacheAgent) SyncRules(ctx context.Context) error {
 	return nil
 }
 
-func (d *DNSCacheAgent) CleanRules() {
+func CleanRules() {
 	nft, err := nftables.New()
 	if err != nil {
 		klog.Errorf("can not start nftables:%v", err)
