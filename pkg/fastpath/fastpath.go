@@ -209,7 +209,7 @@ func (ma *FastPathAgent) syncRules(devices []string) error {
 	return nil
 }
 
-func (ma *FastPathAgent) CleanRules() {
+func CleanRules() {
 	nft, err := nftables.New()
 	if err != nil {
 		klog.Infof("fastpath cleanup failure, can not start nftables:%v", err)
