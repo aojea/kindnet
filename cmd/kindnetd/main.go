@@ -308,7 +308,7 @@ func main() {
 		}()
 	} else {
 		klog.Info("Skipping nflog agent, cleaning old rules")
-		nflogAgent.CleanRules()
+		nflog.CleanRules()
 	}
 
 	// network policies
