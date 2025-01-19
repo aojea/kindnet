@@ -32,7 +32,10 @@ type NodeController struct {
 	nodeLister  corelisters.NodeLister
 	nodesSynced cache.InformerSynced
 
-	cniDone      atomic.Bool
+	localPodCIDRs []string
+	localPodIPs   []net.IP
+
+	ipsecTunnel  atomic.Bool
 	providerDone atomic.Bool
 }
 
@@ -176,13 +179,17 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 		return syncRoute(node)
 	}
 	// compute the current cni config inputs for our own node
-	if len(node.Spec.PodCIDRs) > 0 && !c.cniDone.Load() {
-		err := WriteCNIConfig(node.Spec.PodCIDRs)
+	if len(node.Spec.PodCIDRs) > 0 {
+		ips, err := GetNodeHostIPs(node)
 		if err != nil {
 			return err
 		}
-		klog.Infof("CNI config file succesfully written")
-		c.cniDone.Store(true)
+		c.localPodCIDRs = node.Spec.PodCIDRs
+		c.localPodIPs = ips
+		err = WriteCNIConfig(node.Spec.PodCIDRs)
+		if err != nil {
+			return err
+		}
 	}
 	// cloud provider specific changes required to the node
 
