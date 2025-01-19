@@ -98,6 +98,15 @@ spec:
         command:
         - /bin/kindnetd
         - --hostname-override=$(NODE_NAME)
+        - --network-policy=true
+        - --admin-network-policy=false
+        - --baseline-admin-network-policy=false
+        - --masquerading=true
+        - --dns-caching=true
+        - --disable-cni=false
+        - --fastpath-threshold=20
+        - --ipsec-overlay=false
+        - --nat64=true
         - --v=2
         env:
         - name: HOST_IP

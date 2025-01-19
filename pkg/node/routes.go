@@ -32,7 +32,7 @@ func syncRoute(node *v1.Node) error {
 		addRoute := true
 		for _, route := range routes {
 			if route.Gw != nil {
-				klog.Infof("Route to Node %s via %s, no direct routing needed, if pods can not communicate please configure your router correctly", nodeIP, route.Gw.String())
+				klog.V(2).Infof("Route to Node %s via %s, no direct routing needed, if pods can not communicate please configure your router correctly", nodeIP, route.Gw.String())
 				addRoute = false
 				break
 			}
@@ -64,6 +64,11 @@ func syncRoute(node *v1.Node) error {
 			if len(routes) == 0 {
 				klog.Infof("Adding route %v \n", dst)
 				if err := netlink.RouteAdd(&routeToDst); err != nil {
+					return err
+				}
+			} else if len(routes) > 0 && !routes[0].Gw.Equal(nodeIP) {
+				klog.Infof("Replaceing route %v \n", dst)
+				if err := netlink.RouteReplace(&routeToDst); err != nil {
 					return err
 				}
 			}
