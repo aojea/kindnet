@@ -81,6 +81,7 @@ var (
 	fastpathThreshold          int
 	disableCNI                 bool
 	nflogLevel                 int
+	ipsecOverlay               bool
 )
 
 func init() {
@@ -98,6 +99,7 @@ func init() {
 	flag.IntVar(&fastpathThreshold, "fastpath-threshold", 20, "The number of packets after the traffic is offloaded to the fast path, zero disables it (default 20). Set to zero to disable it")
 
 	flag.IntVar(&nflogLevel, "nflog-level", 9, "The log level at which the TCP and UDP packets are logged to stdout (default 9)")
+	flag.BoolVar(&ipsecOverlay, "ipsec-overlay", false, "use IPSec to tunnel traffic between nodes (default false)")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -216,7 +218,7 @@ func main() {
 
 	// node controller handles CNI config for our own node and routes to the others
 	if !disableCNI {
-		nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer)
+		nodeController := kindnetnode.NewNodeController(nodeName, clientset, nodeInformer, ipsecOverlay)
 		go func() {
 			err := nodeController.Run(ctx, 5)
 			if err != nil {

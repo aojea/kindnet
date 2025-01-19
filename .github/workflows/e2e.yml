@@ -56,7 +56,7 @@ jobs:
       fail-fast: false
       matrix:
         ipFamily: ["ipv4", "ipv6", "dual"]
-        cniMode: ["ptp"]
+        cniMode: ["ptp","ipsec"]
     env:
       JOB_NAME: "kindnetd-e2e-${{ matrix.ipFamily }}-${{ matrix.cniMode }}"
       IP_FAMILY: ${{ matrix.ipFamily }}
@@ -129,11 +129,12 @@ jobs:
         sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
 
-    - name: install bridge plugin
-      if: ${{ matrix.cniMode == 'bridge' }}
+    - name: enable ipsec
+      if: ${{ matrix.cniMode == 'ipsec' }}
       run: |
-        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet-bridge.yaml
-        /usr/local/bin/kubectl apply -f ./install-kindnet-bridge.yaml
+        sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
+        sed -i s#ipsec-overlay=false#ipsec-overlay=true# install-kindnet.yaml
+        /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
 
     - name: Get Cluster status
       run: |

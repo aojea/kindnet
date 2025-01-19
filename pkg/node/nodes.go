@@ -3,6 +3,7 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	coreinformers "k8s.io/client-go/informers/core/v1"
@@ -39,7 +41,7 @@ type NodeController struct {
 	providerDone atomic.Bool
 }
 
-func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer) *NodeController {
+func NewNodeController(nodeName string, client clientset.Interface, nodeInformer coreinformers.NodeInformer, ipsec bool) *NodeController {
 	klog.V(2).Info("Creating routes controller")
 
 	c := &NodeController{
@@ -49,6 +51,9 @@ func NewNodeController(nodeName string, client clientset.Interface, nodeInformer
 		nodesSynced: nodeInformer.Informer().HasSynced,
 		workqueue:   workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
+
+	c.ipsecTunnel.Store(ipsec)
+
 	_, err := nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: c.enqueueNode,
 		UpdateFunc: func(old, new interface{}) {
@@ -72,10 +77,18 @@ func NewNodeController(nodeName string, client clientset.Interface, nodeInformer
 			if c.nodeName == node.Name {
 				return
 			}
-			err := deleteRoutes(node)
-			if err != nil {
-				klog.Infof("unexpected error deleting routes for node %s : %v", node.Name, err)
+			if c.ipsecTunnel.Load() {
+				err := deleteIPSecPolicies(node)
+				if err != nil {
+					klog.Infof("unexpected error deleting ipsec policies for node %s : %v", node.Name, err)
+				}
+			} else {
+				err := deleteRoutes(node)
+				if err != nil {
+					klog.Infof("unexpected error deleting routes for node %s : %v", node.Name, err)
+				}
 			}
+
 		},
 	})
 	if err != nil {
@@ -118,6 +131,82 @@ func (c *NodeController) Run(ctx context.Context, workers int) error {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
+	klog.Info("Waiting for node parameters")
+	err := wait.PollUntilContextCancel(ctx, 1*time.Second, true, func(context.Context) (bool, error) {
+		node, err := c.nodeLister.Get(c.nodeName)
+		if err != nil {
+			return false, nil
+		}
+		if len(node.Spec.PodCIDRs) == 0 {
+			return false, nil
+		}
+		ips, err := GetNodeHostIPs(node)
+		if err != nil {
+			return false, nil
+		}
+		c.localPodCIDRs = node.Spec.PodCIDRs
+		c.localPodIPs = ips
+		return true, nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get Node PodCIDRs: %w", err)
+	}
+
+	// clean up ipsec interface and policies if ipsec is not enabled
+	if !c.ipsecTunnel.Load() {
+		err := cleanIPSecInterface()
+		if err != nil {
+			klog.Infof("unexpected error deleting ipsec interface: %v", err)
+		}
+		err = cleanIPSecPolicies()
+		if err != nil {
+			klog.Infof("unexpected error cleaning ipsec policies: %v", err)
+		}
+	} else {
+		err = c.initIPsec()
+		if err != nil {
+			klog.Infof("fail to initialize ipsec interface: %v", err)
+			return err
+		}
+		// monitor the token does not change and reconcile all
+		// nodes when that happens.
+		tokenKey, err := getKey()
+		if err != nil {
+			klog.Infof("fail to get ipsec key: %v", err)
+			return err
+		}
+		// TODO: check how can we can do better
+		go wait.UntilWithContext(ctx, func(ctx context.Context) {
+			newKey, err := getKey()
+			if err != nil {
+				klog.Infof("fail to get ipsec key: %v", err)
+				return
+			}
+			if bytes.Equal(newKey, tokenKey) {
+				return
+			}
+			nodes, err := c.nodeLister.List(labels.Everything())
+			if err != nil {
+				return
+			}
+			success := true
+			for _, node := range nodes {
+				err := c.syncIPSecPolicies(node)
+				if err != nil {
+					success = false
+				}
+			}
+			if success {
+				tokenKey = newKey
+			}
+		}, 5*time.Minute)
+	}
+
+	err = WriteCNIConfig(c.localPodCIDRs)
+	if err != nil {
+		return err
+	}
+
 	logger.Info("Starting workers", "count", workers)
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, c.runWorker, time.Second)
@@ -126,7 +215,6 @@ func (c *NodeController) Run(ctx context.Context, workers int) error {
 	logger.Info("Started workers")
 	<-ctx.Done()
 	logger.Info("Shutting down workers")
-
 	return nil
 }
 
@@ -176,16 +264,14 @@ func (c *NodeController) syncNode(ctx context.Context, key string) error {
 
 	// if is a different node sync the routes
 	if node.Name != c.nodeName {
-		return syncRoute(node)
+		if c.ipsecTunnel.Load() {
+			return c.syncIPSecPolicies(node)
+		} else {
+			return syncRoute(node)
+		}
 	}
 	// compute the current cni config inputs for our own node
 	if len(node.Spec.PodCIDRs) > 0 {
-		ips, err := GetNodeHostIPs(node)
-		if err != nil {
-			return err
-		}
-		c.localPodCIDRs = node.Spec.PodCIDRs
-		c.localPodIPs = ips
 		err = WriteCNIConfig(node.Spec.PodCIDRs)
 		if err != nil {
 			return err
