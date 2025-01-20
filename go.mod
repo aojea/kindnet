@@ -17,8 +17,8 @@ require (
 	github.com/ti-mo/conntrack v0.5.1
 	github.com/ti-mo/netfilter v0.5.2
 	github.com/vishvananda/netlink v1.3.1-0.20250110035100-391c8505129e
-	k8s.io/api v0.32.0
-	k8s.io/apimachinery v0.32.0
+	k8s.io/api v0.32.1
+	k8s.io/apimachinery v0.32.1
 	k8s.io/client-go v0.32.0
 	k8s.io/component-base v0.32.0
 	k8s.io/component-helpers v0.32.0
