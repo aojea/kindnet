@@ -129,7 +129,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 
 	hostDNS, hostSearch, hostOptions, err := parseResolvConf(resolvPath)
 	if err != nil {
-		klog.ErrorS(err, "Could not parse resolv conf file on %s", resolvPath)
+		klog.ErrorS(err, "Could not parse resolv conf file", "path", resolvPath)
 	} else {
 		d.searches = hostSearch
 		klog.Infof("Resolv.conf from %s: nameservers: %v search: %v options: %v", resolvPath, hostDNS, hostSearch, hostOptions)

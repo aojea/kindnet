@@ -339,7 +339,7 @@ func forwardDNSOverTCP(conn net.Conn, id uint16, q dnsmessage.Question) ([]net.I
 		}
 
 		if err := p.SkipAnswer(); err != nil && err != dnsmessage.ErrSectionDone {
-			klog.ErrorS(err, "can not unmarhall DNS header")
+			klog.ErrorS(err, "can not unmarshall DNS header")
 			continue
 		}
 	}
