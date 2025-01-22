@@ -76,7 +76,7 @@ func getKubeletConfigz(ctx context.Context, nodeName string) (*kubeletconfigv1be
 func parseResolvConf(resolvPath string) (nameservers []string, searches []string, options []string, err error) {
 	f, err := os.Open(resolvPath)
 	if err != nil {
-		klog.ErrorS(err, "Could not open resolv conf file.")
+		klog.ErrorS(err, "Could not open resolv conf file.", "path", resolvPath)
 		return nil, nil, nil, err
 	}
 	defer f.Close()
