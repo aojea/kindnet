@@ -20,12 +20,12 @@ require (
 	k8s.io/api v0.32.1
 	k8s.io/apimachinery v0.32.1
 	k8s.io/client-go v0.32.1
-	k8s.io/component-base v0.32.0
+	k8s.io/component-base v0.32.1
 	k8s.io/component-helpers v0.32.1
 	k8s.io/cri-api v0.32.1
 	k8s.io/cri-client v0.32.0
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/kubelet v0.32.0
+	k8s.io/kubelet v0.32.1
 	sigs.k8s.io/kube-network-policies v0.7.0
 	sigs.k8s.io/network-policy-api v0.1.5
 )
