@@ -12,9 +12,9 @@ WORKDIR /src/cmd/cni-kindnet
 # sqlite requires CGO
 RUN if [ "$TARGETARCH" = "arm64" ] ; then \
       apt-get update && apt-get -y install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu ;\
-      CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=$TARGETARCH go build -o /go/bin/cni-kindnet . ;\
+      CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOARCH=$TARGETARCH go build -ldflags="-extldflags=-static" -tags sqlite_omit_load_extension,osusergo,netgo -o /go/bin/cni-kindnet . ;\
   else \
-      CGO_ENABLED=1 GOARCH=$TARGETARCH go build -o /go/bin/cni-kindnet . ;\
+      CGO_ENABLED=1 GOARCH=$TARGETARCH go build -ldflags="-extldflags=-static" -tags sqlite_omit_load_extension,osusergo,netgo -o /go/bin/cni-kindnet . ;\
   fi
 
 # STEP 2: Build small image
