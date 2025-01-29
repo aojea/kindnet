@@ -3,10 +3,14 @@
 package dnscache
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/aojea/kindnet/pkg/network"
@@ -205,6 +209,7 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 			}
 		}
 		logger.Info("Could not receive message", "error", err)
+		printNfnetlinkQueueStats()
 		return 0
 	})
 	if err != nil {
@@ -236,6 +241,30 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 			continue
 		}
 	}
+}
+
+func printNfnetlinkQueueStats() {
+	const maxBufferSize = 1024 * 1024
+
+	f, err := os.Open("/proc/net/netfilter/nfnetlink_queue")
+	if err != nil {
+		klog.Infof("can not get nfqueue stats: %v", err)
+		return
+	}
+	defer f.Close()
+
+	reader := io.LimitReader(f, maxBufferSize)
+
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 9 {
+			klog.Infof("unexpected output, expected 9 fields: %v", fields)
+			return
+		}
+		klog.Infof("nfqueue stats: queue_number: %s port_id: %s queue_total: %s copy_mode: %s copy_range: %s kernel_dropped: %s user_dropped: %s last_packet_id: %s", fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], fields[6], fields[7])
+	}
+
 }
 
 // SyncRules syncs ip masquerade rules
