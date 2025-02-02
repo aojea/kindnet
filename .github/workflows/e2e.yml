@@ -127,6 +127,8 @@ jobs:
       if: ${{ matrix.cniMode == 'ptp' }}
       run: |
         sed -i s#aojea/kindnetd.*#aojea/kindnetd:test# install-kindnet.yaml
+        # Debug CI failures
+        sed -i s#--v=2#--v=4# install-kindnet.yaml
         /usr/local/bin/kubectl apply -f ./install-kindnet.yaml
 
     - name: enable ipsec
