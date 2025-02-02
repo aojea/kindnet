@@ -177,7 +177,10 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		packet, err := network.ParsePacket(*a.Payload)
 		if err != nil {
 			logger.Error(err, "Can not process packet, applying default policy", "id", *a.PacketID)
-			d.nfq.SetVerdict(*a.PacketID, verdict) //nolint:errcheck
+			err := d.nfq.SetVerdict(*a.PacketID, verdict)
+			if err != nil {
+				logger.Error(err, "Can not set verdict for packet", "id", *a.PacketID)
+			}
 			return 0
 		}
 		packet.ID = *a.PacketID
@@ -197,7 +200,10 @@ func (d *DNSCacheAgent) Run(ctx context.Context) error {
 		} else {
 			verdict = nfqueue.NfDrop
 		}
-		d.nfq.SetVerdict(*a.PacketID, verdict) //nolint:errcheck
+		err = d.nfq.SetVerdict(*a.PacketID, verdict)
+		if err != nil {
+			logger.Error(err, "Can not set verdict for packet", "id", *a.PacketID)
+		}
 		return 0
 	}
 
