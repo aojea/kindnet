@@ -156,7 +156,7 @@ func checkHeader(p *dnsmessage.Parser, h dnsmessage.Header) error {
 		// the server is behaving incorrectly or
 		// having temporary trouble.
 		if rcode == dnsmessage.RCodeServerFailure {
-			return fmt.Errorf("server temporary mishbehaving, header rcode %d extended rcode %v rcode ServerFailure", h.RCode, hasAdd)
+			return fmt.Errorf("server temporary mishbehaving, header %s extended rcode %v rcode ServerFailure", h.GoString(), hasAdd)
 		}
 		return fmt.Errorf("server mishbehaving, header rcode %d extended rcode %v rcode value %d", h.RCode, hasAdd, rcode)
 	}
