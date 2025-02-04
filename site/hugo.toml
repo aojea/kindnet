@@ -46,11 +46,17 @@ name = "Design"
 title = "Design"
 weight = 5
 [[menu.main]]
+identifier = "troubleshooting"
+url = "/docs/troubleshooting"
+name = "Troubleshooting"
+title = "Troubleshooting"
+weight = 6
+[[menu.main]]
 identifier = "contributing"
 url = "/docs/contributing"
 name = "Contributing"
 title = "Contributing"
-weight = 6
+weight = 7
 
 [outputs]
 home = ["HTML"]
