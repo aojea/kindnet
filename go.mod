@@ -3,9 +3,9 @@ module github.com/aojea/kindnet
 go 1.23.0
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.36.0
+	github.com/aws/aws-sdk-go-v2 v1.36.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.4
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.27
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.28
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.198.3
 	github.com/containerd/nri v0.9.0
 	github.com/florianl/go-nflog/v2 v2.1.0
