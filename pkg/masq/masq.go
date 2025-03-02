@@ -278,7 +278,7 @@ func (ma *IPMasqAgent) SyncRules(ctx context.Context) error {
 		Table: table,
 		Chain: chain,
 		Exprs: []expr.Any{
-			&expr.Fib{Register: 0x1, FlagSADDR: true, ResultADDRTYPE: true},
+			&expr.Fib{Register: 0x1, FlagDADDR: true, ResultADDRTYPE: true},
 			&expr.Cmp{Op: expr.CmpOpEq, Register: 0x1, Data: network.EncodeWithAlignment(byte(unix.RTN_LOCAL))},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		},
