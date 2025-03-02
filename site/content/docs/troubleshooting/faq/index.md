@@ -1,7 +1,6 @@
 ---
 title: "FAQ"
 date: 2025-02-04T17:33:28+01:00
-draft: true
 ---
 
 ## Where are the binary files located in pod started by daemon set?
