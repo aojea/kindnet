@@ -52,7 +52,7 @@ table inet kindnet-ipmasq {
       chain postrouting {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
-              fib saddr type local accept
+              fib daddr type local accept
               ip daddr @noMasqV4 accept
               ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
@@ -86,7 +86,7 @@ table inet kindnet-ipmasq {
       chain postrouting {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
-              fib saddr type local accept
+              fib daddr type local accept
               ip daddr @noMasqV4 accept
               ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
@@ -121,7 +121,7 @@ table inet kindnet-ipmasq {
       chain postrouting {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
-              fib saddr type local accept
+              fib daddr type local accept
               ip daddr @noMasqV4 accept
               ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
@@ -156,7 +156,7 @@ table inet kindnet-ipmasq {
       chain postrouting {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
-              fib saddr type local accept
+              fib daddr type local accept
               ip daddr @noMasqV4 accept
               ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
@@ -195,7 +195,7 @@ table inet kindnet-ipmasq {
       chain postrouting {
               type nat hook postrouting priority srcnat - 10; policy accept;
               ct state established,related accept
-              fib saddr type local accept
+              fib daddr type local accept
               ip daddr @noMasqV4 accept
               ip6 daddr @noMasqV6 accept
               masquerade counter packets 0 bytes 0
