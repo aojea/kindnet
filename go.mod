@@ -102,7 +102,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/vishvananda/netns v0.0.5
-	golang.org/x/net v0.35.0
+	golang.org/x/net v0.36.0
 	golang.org/x/oauth2 v0.27.0 // indirect
 	golang.org/x/sys v0.30.0
 	golang.org/x/term v0.29.0 // indirect
