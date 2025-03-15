@@ -6,6 +6,8 @@ ARG TARGETARCH BUILDPLATFORM TARGETPLATFORM
 # copy in sources
 WORKDIR /src
 COPY . .
+# cache package fetch when iterating on the steps below
+RUN go mod download
 # build
 RUN CGO_ENABLED=0 GOARCH=$TARGETARCH go build -o /go/bin/kindnetd ./cmd/kindnetd
 WORKDIR /src/cmd/cni-kindnet
