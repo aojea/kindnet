@@ -34,10 +34,12 @@ TAG?=$(shell echo "$$(date +v%Y%m%d)-$$(git describe --always --dirty)")
 # the full image tag
 IMAGE?=$(REGISTRY)/$(IMAGE_NAME):$(TAG)
 PLATFORMS?=linux/amd64,linux/arm64
+PROGRESS?=auto
 # required to enable buildx
 export DOCKER_CLI_EXPERIMENTAL=enabled
 
 image-build:
 	docker buildx build . \
+		--progress="${PROGRESS}" \
 		--platform="${PLATFORMS}" \
 		--tag="${IMAGE}"
