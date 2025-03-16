@@ -20,6 +20,7 @@ import (
 	"github.com/aojea/kindnet/pkg/dnscache"
 	"github.com/aojea/kindnet/pkg/fastpath"
 	"github.com/aojea/kindnet/pkg/masq"
+	"github.com/aojea/kindnet/pkg/multinetwork"
 	kindnetnat64 "github.com/aojea/kindnet/pkg/nat64"
 	"github.com/aojea/kindnet/pkg/nflog"
 	kindnetnode "github.com/aojea/kindnet/pkg/node"
@@ -82,6 +83,7 @@ var (
 	disableCNI                 bool
 	nflogLevel                 int
 	ipsecOverlay               bool
+	multiNetwork               bool
 )
 
 func init() {
@@ -100,6 +102,7 @@ func init() {
 
 	flag.IntVar(&nflogLevel, "nflog-level", 9, "The log level at which the TCP and UDP packets are logged to stdout (default 9)")
 	flag.BoolVar(&ipsecOverlay, "ipsec-overlay", false, "use IPSec to tunnel traffic between nodes (default false)")
+	flag.BoolVar(&multiNetwork, "multi-network", false, "enable multi network capabilities for Pods using DRA (default false) (beta)")
 
 	flag.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: kindnet [options]\n\n")
@@ -372,6 +375,27 @@ func main() {
 			klog.Infof("conntrack metrics agent error: %v", err)
 		}
 	}()
+
+	// start multinetwork agent
+	if multiNetwork {
+		klog.Infof("start multinetwork agant")
+		multinetAgent, err := multinetwork.NewMultiNetworkAgent(clientset, nodeName)
+		if err != nil {
+			// TODO: do not fail hard until the whole ecosystem is more mature
+			// NRI requires containerd 2.0
+			// DRA is beta disabled by default in kubernetes 1.33
+			klog.Infof("error creating multinetwork agent: %v", err)
+			klog.Info("Skipping multinetwork, cleaning up old rules")
+		} else {
+			go func() {
+				if err := multinetAgent.Run(ctx); err != nil {
+					klog.Infof("error running multinetwork agent: %v", err)
+				}
+			}()
+		}
+	} else {
+		klog.Info("Skipping multinetwork, cleaning up old rules")
+	}
 
 	// main control loop
 	informersFactory.Start(ctx.Done())
