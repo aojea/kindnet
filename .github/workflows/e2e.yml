@@ -15,8 +15,8 @@ on:
 
 env:
   GO_VERSION: "1.23"
-  K8S_VERSION: "v1.32.0"
-  KIND_VERSION: "v0.26.0"
+  K8S_VERSION: "v1.32.2"
+  KIND_VERSION: "v0.27.0"
   KIND_CLUSTER_NAME: "kindnet"
   REGISTRY: ghcr.io
   IMAGE_NAME: aojea/kindnetd
@@ -109,6 +109,12 @@ jobs:
         - role: control-plane
         - role: worker
         - role: worker
+        featureGates:
+          # Enable the corresponding DRA feature gates
+          DynamicResourceAllocation: true
+          DRAResourceClaimDeviceStatus: true
+        runtimeConfig:
+          api/beta : true
         EOF
         # dump the kubeconfig for later
         /usr/local/bin/kind get kubeconfig --name ${{ env.KIND_CLUSTER_NAME}} > _artifacts/kubeconfig.conf
