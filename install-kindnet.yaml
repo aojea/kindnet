@@ -1,3 +1,6 @@
+# Copyright 2025 Antonio Ojea
+# SPDX-License-Identifier: Apache-2.0
+
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
@@ -9,6 +12,7 @@ rules:
     resources:
       - nodes
     verbs:
+      - get
       - list
       - watch
       - patch
@@ -20,17 +24,35 @@ rules:
     verbs:
       - get
   - apiGroups:
-     - ""
+      - "resource.k8s.io"
     resources:
-      - configmaps
+      - resourceslices
+    verbs:
+      - list
+      - watch
+      - create
+      - update
+  - apiGroups:
+      - "resource.k8s.io"
+    resources:
+      - resourceclaims
+      - deviceclasses
     verbs:
       - get
+  - apiGroups:
+      - "resource.k8s.io"
+    resources:
+      - resourceclaims/status
+    verbs:
+      - patch
+      - update
   - apiGroups:
       - ""
     resources:
       - pods
       - namespaces
     verbs:
+      - get
       - list
       - watch
   - apiGroups:
@@ -107,6 +129,7 @@ spec:
         - --fastpath-threshold=20
         - --ipsec-overlay=false
         - --nat64=true
+        - --multi-network=true
         - --v=2
         env:
         - name: HOST_IP
@@ -126,6 +149,15 @@ spec:
           mountPath: /etc/cni/net.d
         - name: var-lib-kindnet
           mountPath: /var/lib/cni-kindnet
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/plugins
+        - name: plugin-registry
+          mountPath: /var/lib/kubelet/plugins_registry
+        - name: nri-plugin
+          mountPath: /var/run/nri
+        - name: netns
+          mountPath: /var/run/netns
+          mountPropagation: HostToContainer
         resources:
           requests:
             cpu: "100m"
@@ -145,4 +177,16 @@ spec:
         hostPath:
           path: /var/lib/cni-kindnet
           type: DirectoryOrCreate
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/plugins
+      - name: plugin-registry
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+      - name: nri-plugin
+        hostPath:
+          path: /var/run/nri
+      - name: netns
+        hostPath:
+          path: /var/run/netns
 ---
