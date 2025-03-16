@@ -1,3 +1,6 @@
+// Copyright 2025 Antonio Ojea
+// SPDX-License-Identifier: Apache-2.0
+
 package conntrack
 
 import (

@@ -18,12 +18,19 @@ test:
 	CGO_ENABLED=1 go test -v -race -count 1 ./...
 	cd ./cmd/cni-kindnet ; CGO_ENABLED=1 go test -v -ldflags="-extldflags=-static" -tags sqlite_omit_load_extension,osusergo,netgo -race -count 1 .
 
-# code linters
-lint:
+verify:
 	hack/lint.sh
+	hack/verify-updated.sh
 
 update:
 	go mod tidy
+	docker run -it -v ${PWD}:/src ghcr.io/google/addlicense -c "Antonio Ojea" \
+		-s=only \
+		-ignore=**/*.yaml \
+		-ignore=**/*.yml \
+		-ignore=site/**/* \
+		-ignore=.github/**/* \
+		.
 
 # get image name from directory we're building
 IMAGE_NAME=kindnetd
@@ -42,4 +49,4 @@ image-build:
 	docker buildx build . \
 		--progress="${PROGRESS}" \
 		--platform="${PLATFORMS}" \
-		--tag="${IMAGE}"
+		--tag="${IMAGE}" --load
