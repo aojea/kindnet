@@ -17,7 +17,7 @@ The CNI plugin binary file is located in:
 /opt/cni/bin/cni-kindnet
 ```
 
-## Where is configuration file used by CNI in pod tarted by daemon set?
+## Where is configuration file used by CNI in pod started by daemon set?
 
 ```bash
 /etc/cni/net.d/10-kindnet.conflist
