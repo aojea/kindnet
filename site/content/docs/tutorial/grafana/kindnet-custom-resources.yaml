@@ -1,0 +1,160 @@
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kindnet
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - nodes
+    verbs:
+      - list
+      - watch
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - nodes/proxy
+      - nodes/configz
+    verbs:
+      - get
+  - apiGroups:
+     - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - namespaces
+    verbs:
+      - list
+      - watch
+  - apiGroups:
+     - "networking.k8s.io"
+    resources:
+      - networkpolicies
+    verbs:
+      - list
+      - watch
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: kindnet
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kindnet
+subjects:
+- kind: ServiceAccount
+  name: kindnet
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kindnet
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kindnet
+  namespace: kube-system
+  labels:
+    tier: node
+    app: kindnet
+    k8s-app: kindnet
+spec:
+  selector:
+    matchLabels:
+      app: kindnet
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: kindnet
+        k8s-app: kindnet
+    spec:
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      serviceAccountName: kindnet
+      initContainers:
+      - name: install-cni-bin
+        image: ghcr.io/aojea/kindnetd:stable
+        command: ['sh', '-c', 'cat /opt/cni/bin/cni-kindnet > /cni/cni-kindnet ; chmod +x /cni/cni-kindnet']
+        volumeMounts:
+        - name: cni-bin
+          mountPath: /cni
+      containers:
+      - name: kindnet-cni
+        image: ghcr.io/aojea/kindnetd:stable
+        command:
+        - /bin/kindnetd
+        - --hostname-override=$(NODE_NAME)
+        - --network-policy=true
+        - --admin-network-policy=false
+        - --baseline-admin-network-policy=false
+        - --masquerading=true
+        - --dns-caching=true
+        - --disable-cni=false
+        - --fastpath-threshold=20
+        - --ipsec-overlay=false
+        - --nat64=true
+        - --v=2
+        env:
+        - name: HOST_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - name: cni-cfg
+          mountPath: /etc/cni/net.d
+        - name: var-lib-kindnet
+          mountPath: /var/lib/cni-kindnet
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+        securityContext:
+          privileged: true
+      volumes:
+      - name: cni-bin
+        hostPath:
+          path: /opt/cni/bin
+          type: DirectoryOrCreate
+      - name: cni-cfg
+        hostPath:
+          path: /etc/cni/net.d
+          type: DirectoryOrCreate
+      - name: var-lib-kindnet
+        hostPath:
+          path: /var/lib/cni-kindnet
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kindnet-metrics
+  namespace: kube-system
+spec:
+  selector:
+    app: kindnet
+  ports:
+  - protocol: TCP
+    port: 19080
+    targetPort: 19080
