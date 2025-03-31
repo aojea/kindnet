@@ -2,6 +2,8 @@ module github.com/aojea/kindnet
 
 go 1.24.0
 
+toolchain go1.24.1
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.9
@@ -103,7 +105,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/vishvananda/netns v0.0.5
-	golang.org/x/net v0.37.0
+	golang.org/x/net v0.38.0
 	golang.org/x/oauth2 v0.28.0 // indirect
 	golang.org/x/sys v0.31.0
 	golang.org/x/term v0.30.0 // indirect
