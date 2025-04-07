@@ -6,7 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.9
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.210.1
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.211.2
 	github.com/containerd/nri v0.9.0
 	github.com/florianl/go-nflog/v2 v2.1.0
 	github.com/florianl/go-nfqueue v1.3.2
