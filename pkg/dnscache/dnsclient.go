@@ -336,11 +336,11 @@ func forwardDNSOverTCP(conn net.Conn, id uint16, q dnsmessage.Question) ([]net.I
 				return nil, nil, err
 			}
 			gotIPs = append(gotIPs, r.AAAA[:])
-		}
-
-		if err := p.SkipAnswer(); err != nil && err != dnsmessage.ErrSectionDone {
-			klog.ErrorS(err, "can not unmarshall DNS header")
-			continue
+		default:
+			if err := p.SkipAnswer(); err != nil && err != dnsmessage.ErrSectionDone {
+				klog.ErrorS(err, "can not unmarshall DNS header")
+				continue
+			}
 		}
 	}
 	return gotIPs, udpResp, nil
