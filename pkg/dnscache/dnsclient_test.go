@@ -130,6 +130,17 @@ func Test_forwardDNSOverTCP(t *testing.T) {
 							A: [4]byte(net.ParseIP("192.168.1.1")),
 						},
 					},
+					{
+						Header: dnsmessage.ResourceHeader{
+							Name:   q.Questions[0].Name,
+							Type:   dnsmessage.TypeA,
+							Class:  dnsmessage.ClassINET,
+							Length: 4,
+						},
+						Body: &dnsmessage.AResource{
+							A: [4]byte(net.ParseIP("192.168.1.2")),
+						},
+					},
 				}
 			}
 			return r, nil
@@ -150,8 +161,8 @@ func Test_forwardDNSOverTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) != 1 {
-		t.Fatalf("expected 1 ip address, got %d", len(ips))
+	if len(ips) != 2 {
+		t.Fatalf("expected 2 ip address, got %d", len(ips))
 	}
 }
 
