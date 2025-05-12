@@ -126,6 +126,11 @@ spec:
           mountPath: /etc/cni/net.d
         - name: var-lib-kindnet
           mountPath: /var/lib/cni-kindnet
+        - name: nri-plugin
+          mountPath: /var/run/nri
+        - name: netns
+          mountPath: /var/run/netns
+          mountPropagation: HostToContainer
         resources:
           requests:
             cpu: "100m"
@@ -145,4 +150,10 @@ spec:
         hostPath:
           path: /var/lib/cni-kindnet
           type: DirectoryOrCreate
+      - name: nri-plugin
+        hostPath:
+          path: /var/run/nri
+      - name: netns
+        hostPath:
+          path: /var/run/netns
 ---
