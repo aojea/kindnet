@@ -50,8 +50,7 @@ Kindnet uses a simple point to point model to connect pods within the same node.
 Kindnet can be installed on your cluster using the manifest [install-kindnet.yaml](install-kindnet.yaml)
 
 ```sh
-kubectl create -f
-https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml
+kubectl create -f https://raw.githubusercontent.com/aojea/kindnet/main/install-kindnet.yaml
 ```
 
 ## Contributing
