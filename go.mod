@@ -17,13 +17,13 @@ require (
 	github.com/ti-mo/conntrack v0.5.2
 	github.com/ti-mo/netfilter v0.5.3
 	github.com/vishvananda/netlink v1.3.1
-	k8s.io/api v0.33.3
-	k8s.io/apimachinery v0.33.3
-	k8s.io/client-go v0.33.3
-	k8s.io/component-base v0.33.0
+	k8s.io/api v0.33.4
+	k8s.io/apimachinery v0.33.4
+	k8s.io/client-go v0.33.4
+	k8s.io/component-base v0.33.4
 	k8s.io/component-helpers v0.33.0
-	k8s.io/cri-api v0.33.0
-	k8s.io/cri-client v0.33.0
+	k8s.io/cri-api v0.33.4
+	k8s.io/cri-client v0.33.4
 	k8s.io/klog/v2 v2.130.1
 	k8s.io/kubelet v0.33.0
 	sigs.k8s.io/kube-network-policies v0.8.0
