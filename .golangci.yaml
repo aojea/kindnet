@@ -16,3 +16,9 @@ linters:
     - staticcheck
     - stylecheck
     - typecheck
+
+formatters:
+  disable-all: true
+  enable:
+    - goimports
+    - gofmt

@@ -24,13 +24,8 @@ verify:
 
 update:
 	go mod tidy
-	docker run -v ${PWD}:/src ghcr.io/google/addlicense -c "Antonio Ojea" \
-		-s=only \
-		-ignore=**/*.yaml \
-		-ignore=**/*.yml \
-		-ignore=site/**/* \
-		-ignore=.github/**/* \
-		.
+	gofmt -s -w ./
+	hack/update-license-header.sh
 
 # get image name from directory we're building
 IMAGE_NAME=kindnetd
