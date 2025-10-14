@@ -1,3 +1,6 @@
+
+# MOVED TO https://github.com/kubernetes-sigs/kindnet
+
 # Kindnet: A Minimalistic Kubernetes Network Plugin
 
 Kindnet is a simple and lightweight Kubernetes network plugin designed for performance and scalability.
