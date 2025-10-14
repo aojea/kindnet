@@ -59,6 +59,22 @@ Please report any issues in the Github project.
 The bar for new features is really high and has to be stricted aligned with the [Goal](#goal) of the project.
 Per example, adding networking overlay functionality is out of the scope of the project.
 
+## Community, discussion, contribution, and support
+
+Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
+
+You can reach the maintainers of this project at:
+
+- [Slack](https://slack.k8s.io/)
+- [Mailing List](https://groups.google.com/a/kubernetes.io/g/dev)
+
+### Code of conduct
+
+Participation in the Kubernetes community is governed by the [Kubernetes Code of Conduct](code-of-conduct.md).
+
+[owners]: https://git.k8s.io/community/contributors/guide/owners.md
+[Creative Commons 4.0]: https://git.k8s.io/website/LICENSE
+
 ## License
 
 Kindnet is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details.
