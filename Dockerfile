@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: APACHE-2.0
 
 # STEP 1: Build kindnetd binary
-FROM --platform=$BUILDPLATFORM golang:1.24@sha256:d9db32125db0c3a680cfb7a1afcaefb89c898a075ec148fdc2f0f646cc2ed509 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25@sha256:5502b0e56fca23feba76dbc5387ba59c593c02ccc2f0f7355871ea9a0852cebe AS builder
 ARG TARGETARCH BUILDARCH BUILDPLATFORM TARGETPLATFORM
 # setup cross-compiler, do this early so it can be cached
 RUN touch /cc-env ;\
